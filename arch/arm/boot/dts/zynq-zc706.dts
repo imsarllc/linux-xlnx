@@ -411,25 +411,5 @@
 			interrupts = <0 7 4>;
 			reg = <0xf8007100 0x20>;
 		} ;
-		reg_gpio: gpio@81200000 {
-			#gpio-cells = <2>;
-			compatible = "xlnx,axi-gpio-2.0", "xlnx,xps-gpio-1.00.a";
-			gpio-controller ;
-			interrupt-parent = <&ps7_scugic_0>;
-			interrupts = <0 59 4>;
-			reg = <0x81200000 0x10000>;
-			xlnx,all-inputs = <0x0>;
-			xlnx,all-inputs-2 = <0x1>;
-			xlnx,all-outputs = <0x1>;
-			xlnx,all-outputs-2 = <0x0>;
-			xlnx,dout-default = <0x0>;
-			xlnx,dout-default-2 = <0x0>;
-			xlnx,gpio-width = <0x20>;
-			xlnx,gpio2-width = <0x10>;
-			xlnx,interrupt-present = <0x1>;
-			xlnx,is-dual = <0x1>;
-			xlnx,tri-default = <0xffffffff>;
-			xlnx,tri-default-2 = <0xffffffff>;
-		} ;
 	} ;
 } ;
