@@ -173,20 +173,16 @@
 &i2c0 {
 	status = "okay";
 	// the following reside on the ESADE/ESAP tester board
-	fan0@2c {
-		compatible = "maxim,max6639";
-		reg = <0x2c>;
-	};
-	fan1@2f {
-		compatible = "maxim,max6639";
-		reg = <0x2f>;
-	};
 	hvc0@40 {
 		compatible = "lltc,ltc4260";
 		reg = <0x40>;
 	};
-	hvc0@41 {
+	hvc1@41 {
 		compatible = "lltc,ltc4260";
 		reg = <0x41>;
+	};
+	eeprom@55 {
+		compatible = "at,24c256";
+		reg = <0x55>;
 	};
 };
