@@ -186,3 +186,56 @@
 		reg = <0x55>;
 	};
 };
+
+&amba {
+	uart16550_0: serial@43c00000 {
+		clock-frequency = <100000000>;
+		compatible = "ns16550";
+/* valid BK Precision 8500 baud rates
+		current-speed = <4800>;
+		current-speed = <9600>;
+		current-speed = <19200>;
+		current-speed = <38400>;
+*/
+		current-speed = <38400>;
+		device_type = "serial";
+		interrupt-parent = <&intc>;
+		interrupts = <0 32 4>;
+		reg = <0x43c00000 0x10000>;
+		reg-offset = <0x1000>;
+		reg-shift = <2>;
+	};
+	uart16550_1: serial@43c10000 {
+		clock-frequency = <100000000>;
+		compatible = "ns16550";
+		current-speed = <38400>;
+		device_type = "serial";
+		interrupts = <0 33 4>;
+		interrupt-parent = <&intc>;
+		reg = <0x43c10000 0x10000>;
+		reg-offset = <0x1000>;
+		reg-shift = <2>;
+	};
+	uart16550_2: serial@43c20000 {
+		clock-frequency = <100000000>;
+		compatible = "ns16550";
+		current-speed = <38400>;
+		device_type = "serial";
+		interrupts = <0 34 4>;
+		interrupt-parent = <&intc>;
+		reg = <0x43c20000 0x10000>;
+		reg-offset = <0x1000>;
+		reg-shift = <2>;
+	};
+	uart16550_3: serial@43c30000 {
+		clock-frequency = <100000000>;
+		compatible = "ns16550";
+		current-speed = <38400>;
+		device_type = "serial";
+		interrupts = <0 35 4>;
+		interrupt-parent = <&intc>;
+		reg = <0x43c30000 0x10000>;
+		reg-offset = <0x1000>;
+		reg-shift = <2>;
+	};
+};
