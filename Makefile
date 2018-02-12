@@ -1,3 +1,5 @@
+ARCH ?= arm
+export LOADADDR ?= 0x8000
 VERSION = 4
 PATCHLEVEL = 6
 SUBLEVEL = 0
