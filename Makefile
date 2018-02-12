@@ -5,6 +5,12 @@ SUBLEVEL = 0
 EXTRAVERSION =
 NAME = Trick or Treat
 
+##############################
+# IMSAR additions: move these to build script eventually
+ARCH ?= arm
+export LOADADDR ?= 0x8000
+##############################
+
 # *DOCUMENTATION*
 # To see a list of typical targets execute "make help"
 # More info can be located in ./README
