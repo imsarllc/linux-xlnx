@@ -499,6 +499,7 @@ static int sc16is7xx_set_baud(struct uart_port *port, int baud)
 		prescaler = SC16IS7XX_MCR_CLKSEL_BIT;
 		div /= 4;
 	}
+	printk(KERN_DEBUG "Setting baud to %d: Clock = %lu, Divisor = %lu\n", baud, clk, div);
 
 	/* In an amazing feat of design, the Enhanced Features Register shares
 	 * the address of the Interrupt Identification Register, and is
@@ -1415,6 +1416,7 @@ static int sc16is7xx_spi_probe(struct spi_device *spi)
 	const struct sc16is7xx_devtype *devtype;
 	struct regmap *regmap;
 	int ret;
+	int retry = 0;
 
 	/* Setup SPI bus */
 	spi->bits_per_word	= 8;
@@ -1422,9 +1424,15 @@ static int sc16is7xx_spi_probe(struct spi_device *spi)
 	spi->mode		= spi->mode ? : SPI_MODE_0;
 	spi->max_speed_hz	= spi->max_speed_hz ? : 15000000;
 	ret = spi_setup(spi);
+	while(ret == -EBUSY) {
+		retry++;
+		usleep_range(100, 1000);
+		ret = spi_setup(spi);
+	}
 	if (ret)
 		return ret;
 
+	printk(KERN_DEBUG "retry = %d\n", retry);
 	if (spi->dev.of_node) {
 		devtype = device_get_match_data(&spi->dev);
 		if (!devtype)
