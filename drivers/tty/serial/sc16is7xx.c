@@ -980,8 +980,10 @@ static int sc16is7xx_startup(struct uart_port *port)
 	val = SC16IS7XX_FCR_RXRESET_BIT | SC16IS7XX_FCR_TXRESET_BIT;
 	sc16is7xx_port_write(port, SC16IS7XX_FCR_REG, val);
 	udelay(5);
+
+	/* Enable FIFO & set rx interrupt level to 56 characters (0b10) */
 	sc16is7xx_port_write(port, SC16IS7XX_FCR_REG,
-			     SC16IS7XX_FCR_FIFO_BIT);
+			SC16IS7XX_FCR_FIFO_BIT | SC16IS7XX_FCR_RXLVLH_BIT );
 
 	/* Enable EFR */
 	sc16is7xx_port_write(port, SC16IS7XX_LCR_REG,
