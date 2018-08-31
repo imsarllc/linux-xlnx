@@ -142,7 +142,10 @@ static int ulite_receive(struct uart_port *port, int stat)
 	}
 
 	if (stat & ULITE_STATUS_OVERRUN)
+	{
 		port->icount.overrun++;
+		pr_warn("uartlite: rx overrun\n");
+	}
 
 	if (stat & ULITE_STATUS_FRAME)
 		port->icount.frame++;
