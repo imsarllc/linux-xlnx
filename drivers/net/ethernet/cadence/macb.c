@@ -3705,7 +3705,7 @@ static int macb_probe(struct platform_device *pdev)
 	dev->irq = platform_get_irq(pdev, 0);
 	if (dev->irq < 0) {
 		err = dev->irq;
-		goto err_out_free_netdev;
+		goto failed_phy;
 	}
 
 	mac = of_get_mac_address(np);
@@ -3782,8 +3782,8 @@ err_out_unregister_netdev:
 err_out_free_netdev:
 	free_netdev(dev);
 
-failed_phy:
 	of_node_put(phy_node);
+failed_phy:
 
 err_disable_clocks:
 	clk_disable_unprepare(tx_clk);

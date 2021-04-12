@@ -35,7 +35,7 @@ struct dmaengine_buffer {
 	struct list_head active;
 
 	size_t align;
-	size_t max_size;
+	u32 max_size;
 };
 
 static struct dmaengine_buffer *iio_buffer_to_dmaengine_buffer(

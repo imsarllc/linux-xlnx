@@ -957,7 +957,6 @@ void xhci_stream_timeout(unsigned long arg)
 			}
 
 			ep->ep_state |= EP_HALT_PENDING;
-			ep->stop_cmds_pending++;
 			ep->stop_cmd_timer.expires = jiffies +
 				XHCI_STOP_EP_CMD_TIMEOUT * HZ;
 			add_timer(&ep->stop_cmd_timer);

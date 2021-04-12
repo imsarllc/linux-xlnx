@@ -1034,7 +1034,7 @@ static int adp5589_probe(struct i2c_client *client,
 			client->dev.of_node);
 		if (!of_id)
 			return -ENODEV;
-		dev_id = (unsigned int)of_id->data;
+		dev_id = (unsigned long int)of_id->data;
 	} else {
 		return -ENODEV;
 	}

@@ -149,7 +149,7 @@ ssize_t cfs_overlay_item_dtbo_read(struct config_item *item, void *buf,
 {
 	struct cfs_overlay_item *overlay = to_cfs_overlay_item(item);
 
-	pr_debug("%s: buf=%p max_count=%u\n", __func__,
+	pr_debug("%s: buf=%p max_count=%lu\n", __func__,
 			buf, max_count);
 
 	if (overlay->dtbo == NULL)
