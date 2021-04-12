@@ -357,7 +357,7 @@ static irqreturn_t axi_dmac_interrupt_handler(int irq, void *devid)
 
 	axi_dmac_write(dmac, AXI_DMAC_REG_IRQ_PENDING, pending);
 
-	spin_lock(&dmac->chan.vchan.lock);
+	raw_spin_lock(&dmac->chan.vchan.lock);
 	/* One or more transfers have finished */
 	if (pending & AXI_DMAC_IRQ_EOT) {
 		unsigned int completed;
@@ -368,7 +368,7 @@ static irqreturn_t axi_dmac_interrupt_handler(int irq, void *devid)
 	/* Space has become available in the descriptor queue */
 	if ((pending & AXI_DMAC_IRQ_SOT) || start_next)
 		axi_dmac_start_transfer(&dmac->chan);
-	spin_unlock(&dmac->chan.vchan.lock);
+	raw_spin_unlock(&dmac->chan.vchan.lock);
 
 	return IRQ_HANDLED;
 }
@@ -381,12 +381,12 @@ static int axi_dmac_terminate_all(struct dma_chan *c)
 	unsigned long flags;
 	LIST_HEAD(head);
 
-	spin_lock_irqsave(&chan->vchan.lock, flags);
+	raw_spin_lock_irqsave(&chan->vchan.lock, flags);
 	axi_dmac_write(dmac, AXI_DMAC_REG_CTRL, 0);
 	chan->next_desc = NULL;
 	vchan_get_all_descriptors(&chan->vchan, &head);
 	list_splice_tail_init(&chan->active_descs, &head);
-	spin_unlock_irqrestore(&chan->vchan.lock, flags);
+	raw_spin_unlock_irqrestore(&chan->vchan.lock, flags);
 
 	vchan_dma_desc_free_list(&chan->vchan, &head);
 
@@ -408,10 +408,10 @@ static void axi_dmac_issue_pending(struct dma_chan *c)
 
 	axi_dmac_write(dmac, AXI_DMAC_REG_CTRL, AXI_DMAC_CTRL_ENABLE);
 
-	spin_lock_irqsave(&chan->vchan.lock, flags);
+	raw_spin_lock_irqsave(&chan->vchan.lock, flags);
 	if (vchan_issue_pending(&chan->vchan))
 		axi_dmac_start_transfer(chan);
-	spin_unlock_irqrestore(&chan->vchan.lock, flags);
+	raw_spin_unlock_irqrestore(&chan->vchan.lock, flags);
 }
 
 static struct axi_dmac_desc *axi_dmac_alloc_desc(unsigned int num_sgs)
