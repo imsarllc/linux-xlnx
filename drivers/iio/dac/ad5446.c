@@ -329,6 +329,7 @@ enum ad5446_supported_spi_device_ids {
 	ID_AD5541A,
 	ID_AD5512A,
 	ID_AD5553,
+	ID_AD5600,
 	ID_AD5601,
 	ID_AD5611,
 	ID_AD5621,
@@ -381,6 +382,10 @@ static const struct ad5446_chip_info ad5446_spi_chip_info[] = {
 	},
 	[ID_AD5553] = {
 		.channel = AD5446_CHANNEL(14, 16, 0),
+		.write = ad5446_write,
+	},
+	[ID_AD5600] = {
+		.channel = AD5446_CHANNEL(16, 16, 0),
 		.write = ad5446_write,
 	},
 	[ID_AD5601] = {
@@ -450,6 +455,7 @@ static const struct spi_device_id ad5446_spi_ids[] = {
 	{"ad5542a", ID_AD5541A}, /* ad5541a and ad5542a are compatible */
 	{"ad5543", ID_AD5541A}, /* ad5541a and ad5543 are compatible */
 	{"ad5553", ID_AD5553},
+	{"ad5600", ID_AD5600},
 	{"ad5601", ID_AD5601},
 	{"ad5611", ID_AD5611},
 	{"ad5621", ID_AD5621},
@@ -469,7 +475,8 @@ static int ad5446_spi_probe(struct spi_device *spi)
 {
 	const struct spi_device_id *id = spi_get_device_id(spi);
 
-	return ad5446_probe(&spi->dev, id->name,
+	return ad5446_probe(&spi->dev, spi->dev.of_node ?
+		spi->dev.of_node->name : id->name,
 		&ad5446_spi_chip_info[id->driver_data]);
 }
 

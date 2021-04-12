@@ -5,7 +5,7 @@
  * LTC2617, LTC2619, LTC2626, LTC2627, LTC2629 Digital to analog converters
  * driver
  *
- * Copyright 2011 Analog Devices Inc.
+ * Copyright 2011, 2014 Analog Devices Inc.
  *
  * Licensed under the GPL-2.
  */
@@ -23,6 +23,8 @@
 
 #include <linux/iio/iio.h>
 #include <linux/iio/sysfs.h>
+
+#include <linux/platform_data/ad5064.h>
 
 #define AD5064_MAX_DAC_CHANNELS			8
 #define AD5064_MAX_VREFS			4
@@ -797,6 +799,7 @@ static int ad5064_request_vref(struct ad5064_state *st, struct device *dev)
 static int ad5064_probe(struct device *dev, enum ad5064_type type,
 			const char *name, ad5064_write_func write)
 {
+	struct ad5064_platform_data *pdata = dev->platform_data;
 	struct iio_dev *indio_dev;
 	struct ad5064_state *st;
 	unsigned int midscale;

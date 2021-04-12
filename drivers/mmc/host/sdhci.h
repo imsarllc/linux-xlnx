@@ -458,6 +458,8 @@ struct sdhci_host {
 /* Controller doesn't calculate max_busy_timeout */
 #define SDHCI_QUIRK2_NO_CALC_MAX_BUSY_TO		(1<<20)
 #define SDHCI_QUIRK2_PERIODIC_CALIBRATION		(1<<21)
+/* Broken Clock between 19MHz-25MHz */
+#define SDHCI_QUIRK2_CLOCK_STANDARD_25_BROKEN		(1<<22)
 
 	int irq;		/* Device IRQ */
 	void __iomem *ioaddr;	/* Mapped address */
