@@ -994,6 +994,13 @@ static struct clk *ad9523_clk_register(struct iio_dev *indio_dev, unsigned num,
 	return clk;
 }
 
+static void ad9523_clk_unregister(struct iio_dev *indio_dev, unsigned num)
+{
+	struct ad9523_state *st = iio_priv(indio_dev);
+	clk_unregister(st->clk_data.clks[num]);
+}
+
+
 static int ad9523_setup(struct iio_dev *indio_dev)
 {
 	struct ad9523_state *st = iio_priv(indio_dev);
@@ -1248,7 +1255,10 @@ static int ad9523_setup(struct iio_dev *indio_dev)
 		clk = ad9523_clk_register(indio_dev, chan->channel_num,
 					  !chan->output_dis);
 		if (IS_ERR(clk))
+		{
+
 			return PTR_ERR(clk);
+		}
 	}
 
 	of_clk_add_provider(st->spi->dev.of_node,
@@ -1256,6 +1266,23 @@ static int ad9523_setup(struct iio_dev *indio_dev)
 
 	return 0;
 }
+
+static void ad9523_teardown(struct iio_dev* indio_dev)
+{
+	struct ad9523_state *st = iio_priv(indio_dev);
+	struct ad9523_platform_data *pdata = st->pdata;
+	struct ad9523_channel_spec *chan;
+	int i;
+
+	for (i = 0; i < pdata->num_channels; i++) {
+		chan = &pdata->channels[i];
+		if (chan->channel_num >= AD9523_NUM_CHAN)
+			continue;
+		ad9523_clk_unregister(indio_dev, chan->channel_num);
+	}
+}
+
+
 
 #ifdef CONFIG_OF
 static struct ad9523_platform_data *ad9523_parse_dt(struct device *dev)
@@ -1563,6 +1590,7 @@ static int ad9523_remove(struct spi_device *spi)
 	struct iio_dev *indio_dev = spi_get_drvdata(spi);
 	struct ad9523_state *st = iio_priv(indio_dev);
 
+	ad9523_teardown(indio_dev);
 	iio_device_unregister(indio_dev);
 
 	if (!IS_ERR(st->reg))
