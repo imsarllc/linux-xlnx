@@ -1291,7 +1291,9 @@ static int xadc_remove(struct platform_device *pdev)
 
 	iio_device_unregister(indio_dev);
 	if (xadc->ops->flags & XADC_FLAGS_BUFFERED) {
+		iio_trigger_unregister(xadc->samplerate_trigger);
 		iio_trigger_free(xadc->samplerate_trigger);
+		iio_trigger_unregister(xadc->convst_trigger);
 		iio_trigger_free(xadc->convst_trigger);
 		iio_triggered_buffer_cleanup(indio_dev);
 	}
