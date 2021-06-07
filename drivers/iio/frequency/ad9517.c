@@ -307,6 +307,8 @@ static int ad9517_calc_d12_dividers(unsigned vco, unsigned out,  unsigned *d1_va
 	unsigned d1, d2, _d2, _d1, ratio;
 	unsigned err, min = UINT_MAX;
 
+	_d1 = 0;
+	_d2 = 0;
 	ratio = DIV_ROUND_CLOSEST(vco, out);
 	ratio = clamp_t(unsigned, ratio, 1, 32 * 32);
 
