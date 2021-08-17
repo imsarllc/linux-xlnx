@@ -796,6 +796,10 @@ static int axi_dmac_detect_caps(struct axi_dmac *dmac)
 	chan->max_length = axi_dmac_read(dmac, AXI_DMAC_REG_X_LENGTH);
 	if (chan->max_length != UINT_MAX)
 		chan->max_length++;
+	else
+		chan->max_length = INT_MAX;
+	// Future math fails with UINT_MAX because it wraps.
+
 
 	axi_dmac_write(dmac, AXI_DMAC_REG_DEST_ADDRESS, 0xffffffff);
 	if (axi_dmac_read(dmac, AXI_DMAC_REG_DEST_ADDRESS) == 0 &&
