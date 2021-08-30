@@ -348,6 +348,12 @@ int iio_dma_buffer_enable(struct iio_buffer *buffer,
 	if (!queue->num_blocks)
 		iio_dma_buffer_fileio_alloc(queue, indio_dev);
 
+	if (indio_dev->direction == IIO_DEVICE_DIRECTION_IN) {
+		queue->poll_wakup_flags = POLLIN | POLLRDNORM;
+	} else {
+		queue->poll_wakup_flags = POLLOUT | POLLWRNORM;
+	}
+
 	list_for_each_entry_safe(block, _block, &queue->incoming, head) {
 		list_del(&block->head);
 		iio_dma_buffer_submit_block(queue, block);
