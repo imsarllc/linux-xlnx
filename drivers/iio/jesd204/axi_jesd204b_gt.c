@@ -97,7 +97,7 @@ struct jesd204b_gt_state {
 	int			lane;
 	int			es_last_lane;
 	int			prescale;
-	unsigned long		vers_id;
+	unsigned		vers_id;
 	unsigned		version;
 	bool			legacy;
 
@@ -1012,7 +1012,7 @@ static int jesd204b_gt_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, st);
 
 	if (of_id && of_id->data)
-		st->vers_id = (unsigned long) of_id->data;
+		st->vers_id = (unsigned)(long) of_id->data;
 
 	for_each_lane_of_all_links(st, tmp, gt_link, lane) {
 		jesd204b_gt_write(st, JESD204B_GT_REG_RSTN_1(lane) + gt_link->tx_offset, 0); /* resets (drp, pll) */

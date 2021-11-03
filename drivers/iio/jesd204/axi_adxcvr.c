@@ -1,7 +1,7 @@
 /*
  * ADI AXI-ADXCVR Module
  *
- * Copyright 2016 Analog Devices Inc.
+ * Copyright 2016-2018 Analog Devices Inc.
  *
  * Licensed under the GPL-2.
  *
@@ -13,79 +13,10 @@
 #include <linux/clk.h>
 #include <linux/clk-provider.h>
 
+#include "axi_adxcvr.h"
 #include "xilinx_transceiver.h"
+#include "axi_adxcvr_eyescan.h"
 
-#define PCORE_VER(major, minor, letter)	((major << 16) | (minor << 8) | letter)
-#define PCORE_VER_MAJOR(version)		(version >> 16)
-#define PCORE_VER_MINOR(version)		((version >> 8) & 0xff)
-#define PCORE_VER_LETTER(version)		(version & 0xff)
-
-#define ADXCVR_REG_VERSION			0x0000
-#define ADXCVR_VERSION(x)			(((x) & 0xffffffff) << 0)
-#define ADXCVR_VERSION_IS(x, y, z)	((x) << 16 | (y) << 8 | (z))
-#define ADXCVR_VERSION_MAJOR(x)		((x) >> 16)
-
-#define ADXCVR_REG_ID				0x0004
-
-#define ADXCVR_REG_SCRATCH			0x0008
-
-#define ADXCVR_REG_RESETN			0x0010
-#define ADXCVR_RESETN				(1 << 0)
-
-#define ADXCVR_REG_STATUS			0x0014
-#define ADXCVR_STATUS				(1 << 0)
-
-#define ADXCVR_REG_CONTROL			0x0020
-#define ADXCVR_LPM_DFE_N			(1 << 12)
-#define ADXCVR_RATE(x)				(((x) & 0x7) << 8)
-#define ADXCVR_SYSCLK_SEL(x)		(((x) & 0x3) << 4)
-#define ADXCVR_OUTCLK_SEL(x)		(((x) & 0x7) << 0)
-
-#define ADXCVR_REG_SYNTH		0x24
-
-#define ADXCVR_REG_DRP_SEL(x)		(0x0040 + (x))
-
-#define ADXCVR_REG_DRP_CTRL(x)		(0x0044 + (x))
-#define ADXCVR_DRP_CTRL_WR			(1 << 28)
-#define ADXCVR_DRP_CTRL_ADDR(x)		(((x) & 0xFFF) << 16)
-#define ADXCVR_DRP_CTRL_WDATA(x)	(((x) & 0xFFFF) << 0)
-
-#define ADXCVR_REG_DRP_STATUS(x)	(0x0048 + (x))
-#define ADXCVR_DRP_STATUS_BUSY		(1 << 16)
-#define ADXCVR_DRP_STATUS_RDATA(x)	(((x) & 0xFFFF) << 0)
-
-#define ADXCVR_DRP_PORT_ADDR_COMMON	0x00
-#define ADXCVR_DRP_PORT_ADDR_CHANNEL	0x20
-
-#define ADXCVR_DRP_PORT_COMMON		0x00
-#define ADXCVR_DRP_PORT_CHANNEL(x)	(0x1 + x)
-#define ADXCVR_DRP_PORT_CHANNEL_BCAST	0xff
-
-#define ADXCVR_BROADCAST			0xff
-
-struct adxcvr_state {
-	struct device		*dev;
-	void __iomem		*regs;
-	struct clk			*conv_clk;
-	struct clk			*lane_rate_div40_clk;
-	struct clk_hw		lane_clk_hw;
-	struct work_struct	work;
-	unsigned long		lane_rate;
-	bool				tx_enable;
-	u32					sys_clk_sel;
-	u32					out_clk_sel;
-
-	struct clk *clks[2];
-	struct clk_onecell_data clk_lookup;
-
-	struct xilinx_xcvr	xcvr;
-
-	bool				cpll_enable;
-	bool				lpm_enable;
-	bool				ref_is_div40;
-
-	unsigned int			num_lanes;
-};
 
 static struct adxcvr_state *xcvr_to_adxcvr(struct xilinx_xcvr *xcvr)
 {
@@ -93,7 +24,7 @@ static struct adxcvr_state *xcvr_to_adxcvr(struct xilinx_xcvr *xcvr)
 }
 
 static inline unsigned int adxcvr_read(struct adxcvr_state *st,
-									   unsigned int reg)
+				       unsigned int reg)
 {
 	dev_vdbg(st->dev, "%s: reg 0x%X val 0x%X\n", __func__,
 			 reg, ioread32(st->regs + reg));
@@ -102,8 +33,8 @@ static inline unsigned int adxcvr_read(struct adxcvr_state *st,
 }
 
 static inline void adxcvr_write(struct adxcvr_state *st,
-								unsigned int reg,
-								unsigned int val)
+				unsigned int reg,
+				unsigned int val)
 {
 	dev_vdbg(st->dev, "%s: reg 0x%X val 0x%X\n", __func__,
 			 reg, val);
@@ -129,25 +60,24 @@ static int adxcvr_drp_wait_idle(struct adxcvr_state *st, unsigned int drp_addr)
 	return -ETIMEDOUT;
 }
 
-static int adxcvr_drp_read(struct xilinx_xcvr *xcvr, unsigned int drp_port,
-	unsigned int reg)
+static int adxcvr_drp_read(struct xilinx_xcvr *xcvr,
+			   unsigned int drp_port,
+			   unsigned int reg)
 {
 	struct adxcvr_state *st = xcvr_to_adxcvr(xcvr);
-	unsigned int drp_sel = ADXCVR_BROADCAST;
-	unsigned int drp_addr;
+	unsigned int drp_addr, drp_sel;
 	int ret;
 
-	if (drp_port == ADXCVR_DRP_PORT_COMMON) {
+	if (drp_port < ADXCVR_DRP_PORT_CHANNEL(0))
 		drp_addr = ADXCVR_DRP_PORT_ADDR_COMMON;
-	} else {
+	else
 		drp_addr = ADXCVR_DRP_PORT_ADDR_CHANNEL;
-		if (drp_port != ADXCVR_DRP_PORT_CHANNEL_BCAST)
-			drp_sel = drp_port - 1;
-	}
 
+	drp_sel = drp_port & 0xFF;
 
 	adxcvr_write(st, ADXCVR_REG_DRP_SEL(drp_addr), drp_sel);
-	adxcvr_write(st, ADXCVR_REG_DRP_CTRL(drp_addr), ADXCVR_DRP_CTRL_ADDR(reg));
+	adxcvr_write(st, ADXCVR_REG_DRP_CTRL(drp_addr),
+		     ADXCVR_DRP_CTRL_ADDR(reg));
 
 	ret = adxcvr_drp_wait_idle(st, drp_addr);
 	if (ret < 0)
@@ -156,25 +86,27 @@ static int adxcvr_drp_read(struct xilinx_xcvr *xcvr, unsigned int drp_port,
 	return ret & 0xffff;
 }
 
-static int adxcvr_drp_write(struct xilinx_xcvr *xcvr, unsigned int drp_port,
-	unsigned int reg, unsigned int val)
+static int adxcvr_drp_write(struct xilinx_xcvr *xcvr,
+			    unsigned int drp_port,
+			    unsigned int reg,
+			    unsigned int val)
 {
 	struct adxcvr_state *st = xcvr_to_adxcvr(xcvr);
-	unsigned int drp_sel = ADXCVR_BROADCAST;
-	unsigned int drp_addr;
+	unsigned int drp_addr, drp_sel;
 	int ret;
 
-	if (drp_port == ADXCVR_DRP_PORT_COMMON) {
+	if (drp_port < ADXCVR_DRP_PORT_CHANNEL(0))
 		drp_addr = ADXCVR_DRP_PORT_ADDR_COMMON;
-	} else {
+	else
 		drp_addr = ADXCVR_DRP_PORT_ADDR_CHANNEL;
-		if (drp_port != ADXCVR_DRP_PORT_CHANNEL_BCAST)
-			drp_sel = drp_port - 1;
-	}
+
+	drp_sel = drp_port & 0xFF;
 
 	adxcvr_write(st, ADXCVR_REG_DRP_SEL(drp_addr), drp_sel);
-	adxcvr_write(st, ADXCVR_REG_DRP_CTRL(drp_addr), (ADXCVR_DRP_CTRL_WR |
-		ADXCVR_DRP_CTRL_ADDR(reg) | ADXCVR_DRP_CTRL_WDATA(val)));
+	adxcvr_write(st, ADXCVR_REG_DRP_CTRL(drp_addr),
+		(ADXCVR_DRP_CTRL_WR |
+		 ADXCVR_DRP_CTRL_ADDR(reg) |
+		 ADXCVR_DRP_CTRL_WDATA(val)));
 
 	ret = adxcvr_drp_wait_idle(st, drp_addr);
 	if (ret < 0)
@@ -187,6 +119,72 @@ static const struct xilinx_xcvr_drp_ops adxcvr_drp_ops = {
 	.read = adxcvr_drp_read,
 	.write = adxcvr_drp_write,
 };
+
+static ssize_t adxcvr_debug_reg_write(struct device *dev,
+				      struct device_attribute *attr,
+				      const char *buf, size_t count)
+{
+	struct adxcvr_state *st = dev_get_drvdata(dev);
+	int ret, val, val2, val3;
+	char dest[] = "axi";
+
+	ret = sscanf(buf, "%3s %i %i %i", dest, &val, &val2, &val3);
+
+	if (ret > 1) {
+		if (strncmp(dest, "axi", sizeof(dest)) == 0) {
+
+			st->addr = val & 0xFFFF;
+
+			if (ret == 3)
+				adxcvr_write(st, st->addr, val2);
+
+		} else if (strncmp(dest, "drp", sizeof(dest)) == 0 && ret > 2) {
+			st->addr = BIT(31) | (val & 0x1FF) << 16 |
+				   (val2 & 0xFFFF);
+
+			if (ret == 4) {
+				ret = adxcvr_drp_write(&st->xcvr,
+							val & 0x1FF,
+							val2 & 0xFFFF, val3);
+				if (ret)
+					return ret;
+			}
+
+		} else {
+			return -EINVAL;
+		}
+	} else {
+		return -EINVAL;
+	}
+
+	return count;
+}
+
+static ssize_t adxcvr_debug_reg_read(struct device *dev,
+				     struct device_attribute *attr,
+				     char *buf)
+{
+	struct adxcvr_state *st = dev_get_drvdata(dev);
+	unsigned int val;
+	int ret;
+
+	if (st->addr & BIT(31)) {
+		ret = adxcvr_drp_read(&st->xcvr,
+				      (st->addr >> 16) & 0x1FF,
+				      st->addr & 0xFFFF);
+		if (ret < 0)
+			return ret;
+
+		val = ret;
+	} else {
+		val = adxcvr_read(st, st->addr);
+	}
+
+	return sprintf(buf, "0x%X\n", val);
+}
+
+static DEVICE_ATTR(reg_access, 0600, adxcvr_debug_reg_read,
+		   adxcvr_debug_reg_write);
 
 static int adxcvr_status_error(struct device *dev)
 {
@@ -244,8 +242,6 @@ static int adxcvr_clk_enable(struct clk_hw *hw)
 
 	adxcvr_write(st, ADXCVR_REG_RESETN, ADXCVR_RESETN);
 
-	mdelay(100);
-
 	ret = adxcvr_status_error(st->dev);
 
 	return ret;
@@ -260,7 +256,7 @@ static void adxcvr_clk_disable(struct clk_hw *hw)
 }
 
 static unsigned long adxcvr_clk_recalc_rate(struct clk_hw *hw,
-	unsigned long parent_rate)
+					    unsigned long parent_rate)
 {
 	struct adxcvr_state *st =
 		container_of(hw, struct adxcvr_state, lane_clk_hw);
@@ -293,15 +289,24 @@ static unsigned long adxcvr_clk_recalc_rate(struct clk_hw *hw,
 	} else {
 		struct xilinx_xcvr_qpll_config qpll_conf;
 
-		xilinx_xcvr_qpll_read_config(&st->xcvr, ADXCVR_DRP_PORT_COMMON,
+		if ((st->xcvr.type == XILINX_XCVR_TYPE_US_GTH3) ||
+		    (st->xcvr.type == XILINX_XCVR_TYPE_US_GTH4)) {
+			if (st->sys_clk_sel == ADXCVR_GTH_SYSCLK_QPLL1)
+				qpll_conf.qpll = 1;
+			else
+				qpll_conf.qpll = 0;
+		}
+
+		xilinx_xcvr_qpll_read_config(&st->xcvr, ADXCVR_DRP_PORT_COMMON(0),
 			&qpll_conf);
 		return xilinx_xcvr_qpll_calc_lane_rate(&st->xcvr, parent_rate,
 			&qpll_conf, out_div);
 	}
 }
 
-static long adxcvr_clk_round_rate(struct clk_hw *hw, unsigned long rate,
-	unsigned long *prate)
+static long adxcvr_clk_round_rate(struct clk_hw *hw,
+				  unsigned long rate,
+				  unsigned long *prate)
 {
 	struct adxcvr_state *st =
 		container_of(hw, struct adxcvr_state, lane_clk_hw);
@@ -324,8 +329,9 @@ static long adxcvr_clk_round_rate(struct clk_hw *hw, unsigned long rate,
 	return ret < 0 ? ret : rate;
 }
 
-static int adxcvr_clk_set_rate(struct clk_hw *hw, unsigned long rate,
-							   unsigned long parent_rate)
+static int adxcvr_clk_set_rate(struct clk_hw *hw,
+			       unsigned long rate,
+			       unsigned long parent_rate)
 {
 	struct adxcvr_state *st =
 		container_of(hw, struct adxcvr_state, lane_clk_hw);
@@ -349,39 +355,49 @@ static int adxcvr_clk_set_rate(struct clk_hw *hw, unsigned long rate,
 	if (ret < 0)
 		return ret;
 
-	if (st->cpll_enable)
-		ret = xilinx_xcvr_cpll_write_config(&st->xcvr,
-			ADXCVR_DRP_PORT_CHANNEL_BCAST, &cpll_conf);
-	else
-		ret = xilinx_xcvr_qpll_write_config(&st->xcvr,
-			ADXCVR_DRP_PORT_COMMON, &qpll_conf);
-	if (ret < 0)
-		return ret;
+	if ((st->xcvr.type == XILINX_XCVR_TYPE_US_GTH3) ||
+	    (st->xcvr.type == XILINX_XCVR_TYPE_US_GTH4)) {
+		if (st->sys_clk_sel == ADXCVR_GTH_SYSCLK_QPLL1)
+			qpll_conf.qpll = 1;
+		else
+			qpll_conf.qpll = 0;
+	}
 
 	for (i = 0; i < st->num_lanes; i++) {
+
+		if (st->cpll_enable)
+			ret = xilinx_xcvr_cpll_write_config(&st->xcvr,
+							    ADXCVR_DRP_PORT_CHANNEL(i), &cpll_conf);
+		else if (i % 4 == 0)
+			ret = xilinx_xcvr_qpll_write_config(&st->xcvr,
+							    ADXCVR_DRP_PORT_COMMON(i), &qpll_conf);
+		if (ret < 0)
+			return ret;
+
 		ret = xilinx_xcvr_write_out_div(&st->xcvr,
 			ADXCVR_DRP_PORT_CHANNEL(i),
 			st->tx_enable ? -1 : out_div,
 			st->tx_enable ? out_div : -1);
 		if (ret < 0)
 			return ret;
-	}
 
-	if (!st->tx_enable) {
-		ret = xilinx_xcvr_configure_cdr(&st->xcvr,
-			ADXCVR_DRP_PORT_CHANNEL_BCAST, rate, out_div,
-			st->lpm_enable);
+		if (!st->tx_enable) {
+			ret = xilinx_xcvr_configure_cdr(&st->xcvr,
+							ADXCVR_DRP_PORT_CHANNEL(i), rate, out_div,
+							st->lpm_enable);
+			if (ret < 0)
+				return ret;
+
+			ret = xilinx_xcvr_write_rx_clk25_div(&st->xcvr,
+							     ADXCVR_DRP_PORT_CHANNEL(i), clk25_div);
+		} else {
+			ret = xilinx_xcvr_write_tx_clk25_div(&st->xcvr,
+							     ADXCVR_DRP_PORT_CHANNEL(i), clk25_div);
+		}
+
 		if (ret < 0)
 			return ret;
-
-		ret = xilinx_xcvr_write_rx_clk25_div(&st->xcvr,
-			ADXCVR_DRP_PORT_CHANNEL_BCAST, clk25_div);
-	} else {
-		ret = xilinx_xcvr_write_tx_clk25_div(&st->xcvr,
-			ADXCVR_DRP_PORT_CHANNEL_BCAST, clk25_div);
 	}
-	if (ret < 0)
-		return ret;
 
 	st->lane_rate = rate;
 
@@ -399,8 +415,9 @@ static const struct clk_ops clkout_ops = {
 	.set_rate = adxcvr_clk_set_rate,
 };
 
-static int adxcvr_clk_register(struct device *dev, struct device_node *node,
-	const char *parent_name)
+static int adxcvr_clk_register(struct device *dev,
+			       struct device_node *node,
+			       const char *parent_name)
 {
 	struct adxcvr_state *st = dev_get_drvdata(dev);
 	unsigned int out_clk_divider, out_clk_multiplier;
@@ -475,18 +492,13 @@ static int adxcvr_clk_register(struct device *dev, struct device_node *node,
 	return ret;
 }
 
-static int adxcvr_parse_dt(struct adxcvr_state *st,
-						   struct device_node *np)
+static int adxcvr_parse_dt(struct adxcvr_state *st, struct device_node *np)
 {
-	of_property_read_u32(np, "adi,sys-clk-select",
-				&st->sys_clk_sel);
-	of_property_read_u32(np, "adi,out-clk-select",
-				&st->out_clk_sel);
+	of_property_read_u32(np, "adi,sys-clk-select", &st->sys_clk_sel);
+	of_property_read_u32(np, "adi,out-clk-select", &st->out_clk_sel);
 
-	st->cpll_enable = of_property_read_bool(np,
-				"adi,use-cpll-enable");
-	st->lpm_enable = of_property_read_bool(np,
-				"adi,use-lpm-enable");
+	st->cpll_enable = of_property_read_bool(np, "adi,use-cpll-enable");
+	st->lpm_enable = of_property_read_bool(np, "adi,use-lpm-enable");
 
 	INIT_WORK(&st->work, adxcvr_work_func);
 
@@ -521,20 +533,21 @@ static void adxcvr_get_info(struct adxcvr_state *st)
 {
 	unsigned int reg_value;
 
-	reg_value = adxcvr_read(st, AXI_REG_FPGA_INFO);
-	st->xcvr.tech = AXI_INFO_FPGA_TECH(reg_value);
-	st->xcvr.family = AXI_INFO_FPGA_FAMILY(reg_value);
-	st->xcvr.speed_grade = AXI_INFO_FPGA_SPEED_GRADE(reg_value);
-	st->xcvr.dev_package = AXI_INFO_FPGA_DEV_PACKAGE(reg_value);
+	reg_value = adxcvr_read(st, ADI_AXI_REG_FPGA_INFO);
+	st->xcvr.tech = ADI_AXI_INFO_FPGA_TECH(reg_value);
+	st->xcvr.family = ADI_AXI_INFO_FPGA_FAMILY(reg_value);
+	st->xcvr.speed_grade = ADI_AXI_INFO_FPGA_SPEED_GRADE(reg_value);
+	st->xcvr.dev_package = ADI_AXI_INFO_FPGA_DEV_PACKAGE(reg_value);
 
-	reg_value = adxcvr_read(st, AXI_REG_FPGA_VOLTAGE);
-	st->xcvr.voltage = AXI_INFO_FPGA_VOLTAGE(reg_value);
+	reg_value = adxcvr_read(st, ADI_AXI_REG_FPGA_VOLTAGE);
+	st->xcvr.voltage = ADI_AXI_INFO_FPGA_VOLTAGE(reg_value);
 }
 
 static const char *adxcvr_gt_names[] = {
 	[XILINX_XCVR_TYPE_S7_GTX2] = "GTX2",
 	[XILINX_XCVR_TYPE_US_GTH3] = "GTH3",
 	[XILINX_XCVR_TYPE_US_GTH4] = "GTH4",
+	[XILINX_XCVR_TYPE_US_GTY4] = "GTY4",
 };
 
 static int adxcvr_probe(struct platform_device *pdev)
@@ -542,8 +555,8 @@ static int adxcvr_probe(struct platform_device *pdev)
 	struct device_node *np = pdev->dev.of_node;
 	struct adxcvr_state *st;
 	struct resource *mem; /* IO mem resources */
-	unsigned int synth_conf;
-	int ret;
+	unsigned int synth_conf, xcvr_type;
+	int i, ret;
 
 	st = devm_kzalloc(&pdev->dev, sizeof(*st), GFP_KERNEL);
 	if (!st)
@@ -589,8 +602,8 @@ static int adxcvr_probe(struct platform_device *pdev)
 	}
 
 	st->dev = &pdev->dev;
-	st->xcvr.version = adxcvr_read(st, AXI_REG_VERSION);
-	if (AXI_PCORE_VER_MAJOR(st->xcvr.version) > 0x12)
+	st->xcvr.version = adxcvr_read(st, ADI_AXI_REG_VERSION);
+	if (ADI_AXI_PCORE_VER_MAJOR(st->xcvr.version) > 0x10)
 		adxcvr_get_info(st);
 	platform_set_drvdata(pdev, st);
 
@@ -598,29 +611,35 @@ static int adxcvr_probe(struct platform_device *pdev)
 	st->tx_enable = (synth_conf >> 8) & 1;
 	st->num_lanes = synth_conf & 0xff;
 
-	st->xcvr.type = (synth_conf >> 16) & 0xf;
+	xcvr_type = (synth_conf >> 16) & 0xf;
 
 	/* Ensure compliance with legacy xcvr type */
-//	if (AXI_PCORE_VER_MAJOR(st->xcvr.version) <= 0x12) {
-//		switch (st->xcvr.type) {
-//		case XILINX_XCVR_LEGACY_TYPE_S7_GTX2:
-//			st->xcvr.type = XILINX_XCVR_TYPE_S7_GTX2;
-//			break;
-//		case XILINX_XCVR_LEGACY_TYPE_US_GTH3:
-//			st->xcvr.type = XILINX_XCVR_TYPE_US_GTH3;
-//			break;
-//		case XILINX_XCVR_LEGACY_TYPE_US_GTH4:
-//			st->xcvr.type = XILINX_XCVR_TYPE_US_GTH3;
-//			break;
-//		default:
-//			return -EINVAL;
-//		}
-//	}
+	if (ADI_AXI_PCORE_VER_MAJOR(st->xcvr.version) <= 0x10) {
+		switch (xcvr_type) {
+		case XILINX_XCVR_LEGACY_TYPE_S7_GTX2:
+			st->xcvr.type = XILINX_XCVR_TYPE_S7_GTX2;
+			break;
+		case XILINX_XCVR_LEGACY_TYPE_US_GTH3:
+			st->xcvr.type = XILINX_XCVR_TYPE_US_GTH3;
+			break;
+		case XILINX_XCVR_LEGACY_TYPE_US_GTH4:
+			st->xcvr.type = XILINX_XCVR_TYPE_US_GTH4;
+			break;
+		case XILINX_XCVR_LEGACY_TYPE_US_GTY4:
+			st->xcvr.type = XILINX_XCVR_TYPE_US_GTY4;
+			break;
+		default:
+			pr_err("axi_adxcvr: not supported\n");
+			return -EINVAL;
+		}
+	} else
+		st->xcvr.type = xcvr_type;
 
 	switch (st->xcvr.type) {
 	case XILINX_XCVR_TYPE_S7_GTX2:
 	case XILINX_XCVR_TYPE_US_GTH3:
 	case XILINX_XCVR_TYPE_US_GTH4:
+	case XILINX_XCVR_TYPE_US_GTY4:
 		break;
 	default:
 		dev_err(&pdev->dev, "Unknown transceiver type: %d\n",
@@ -637,9 +656,13 @@ static int adxcvr_probe(struct platform_device *pdev)
 				  ADXCVR_SYSCLK_SEL(st->sys_clk_sel) |
 				  ADXCVR_OUTCLK_SEL(st->out_clk_sel)));
 
-	if (!st->tx_enable)
-		xilinx_xcvr_configure_lpm_dfe_mode(&st->xcvr,
-			ADXCVR_DRP_PORT_CHANNEL_BCAST, st->lpm_enable);
+	if (!st->tx_enable) {
+		for (i = 0; i < st->num_lanes; i++) {
+			xilinx_xcvr_configure_lpm_dfe_mode(&st->xcvr,
+							   ADXCVR_DRP_PORT_CHANNEL(i),
+							   st->lpm_enable);
+		}
+	}
 
 	adxcvr_enforce_settings(st);
 
@@ -647,11 +670,17 @@ static int adxcvr_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
+	ret = adxcvr_eyescan_register(st);
+	if (ret)
+		return ret;
+
+	device_create_file(st->dev, &dev_attr_reg_access);
+
 	dev_info(&pdev->dev, "AXI-ADXCVR-%s (%d.%.2d.%c) using %s at 0x%08llX mapped to 0x%p. Number of lanes: %d.",
 		st->tx_enable ? "TX" : "RX",
-		AXI_PCORE_VER_MAJOR(st->xcvr.version),
-		AXI_PCORE_VER_MINOR(st->xcvr.version),
-		AXI_PCORE_VER_LETTER(st->xcvr.version),
+		ADI_AXI_PCORE_VER_MAJOR(st->xcvr.version),
+		ADI_AXI_PCORE_VER_MINOR(st->xcvr.version),
+		ADI_AXI_PCORE_VER_PATCH(st->xcvr.version),
 		adxcvr_gt_names[st->xcvr.type],
 		(unsigned long long)mem->start, st->regs,
 		st->num_lanes);
@@ -676,6 +705,8 @@ static int adxcvr_remove(struct platform_device *pdev)
 {
 	struct adxcvr_state *st = platform_get_drvdata(pdev);
 
+	device_remove_file(st->dev, &dev_attr_reg_access);
+	adxcvr_eyescan_unregister(st);
 	of_clk_del_provider(pdev->dev.of_node);
 	clk_disable_unprepare(st->conv_clk);
 
@@ -691,8 +722,8 @@ static struct platform_driver adxcvr_of_driver = {
 		.owner = THIS_MODULE,
 		.of_match_table = adxcvr_of_match,
 	},
-	.probe		= adxcvr_probe,
-	.remove		= adxcvr_remove,
+	.probe  = adxcvr_probe,
+	.remove = adxcvr_remove,
 };
 
 module_platform_driver(adxcvr_of_driver);

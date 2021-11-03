@@ -16,12 +16,14 @@ enum xilinx_xcvr_type {
 	XILINX_XCVR_TYPE_S7_GTX2 = 2,
 	XILINX_XCVR_TYPE_US_GTH3 = 5,
 	XILINX_XCVR_TYPE_US_GTH4 = 8,
+	XILINX_XCVR_TYPE_US_GTY4 = 9,
 };
 
 enum xilinx_xcvr_legacy_type {
 	XILINX_XCVR_LEGACY_TYPE_S7_GTX2,
 	XILINX_XCVR_LEGACY_TYPE_US_GTH3,
 	XILINX_XCVR_LEGACY_TYPE_US_GTH4,
+	XILINX_XCVR_LEGACY_TYPE_US_GTY4 = 4,
 };
 
 enum xilinx_xcvr_refclk_ppm {
@@ -49,10 +51,10 @@ struct xilinx_xcvr {
 	enum xilinx_xcvr_refclk_ppm refclk_ppm;
 	unsigned int encoding;
 	unsigned int version;
-	enum axi_fgpa_technology tech;
-	enum axi_fpga_family family;
-	enum axi_fpga_speed_grade speed_grade;
-	enum axi_fpga_dev_pack dev_package;
+	enum adi_axi_fgpa_technology tech;
+	enum adi_axi_fpga_family family;
+	enum adi_axi_fpga_speed_grade speed_grade;
+	enum adi_axi_fpga_dev_pack dev_package;
 	unsigned int voltage;
 };
 
@@ -68,6 +70,7 @@ struct xilinx_xcvr_qpll_config {
 	unsigned int refclk_div;
 	unsigned int fb_div;
 	unsigned int band;
+	unsigned int qpll;
 };
 
 int xilinx_xcvr_configure_cdr(struct xilinx_xcvr *xcvr, unsigned int drp_port,
@@ -108,5 +111,9 @@ int xilinx_xcvr_write_rx_clk25_div(struct xilinx_xcvr *xcvr,
 	unsigned int drp_port, unsigned int div);
 int xilinx_xcvr_write_tx_clk25_div(struct xilinx_xcvr *xcvr,
 	unsigned int drp_port, unsigned int div);
+
+int xilinx_xcvr_drp_update(struct xilinx_xcvr *xcvr,
+	unsigned int drp_port, unsigned int reg, unsigned int mask,
+	unsigned int val);
 
 #endif

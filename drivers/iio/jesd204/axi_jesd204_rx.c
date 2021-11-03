@@ -20,14 +20,8 @@
 #include <linux/platform_device.h>
 #include <linux/regmap.h>
 #include <linux/slab.h>
+#include <linux/fpga/adi-axi-common.h>
 
-#define PCORE_VERSION_MAJOR(version)		(version >> 16)
-#define PCORE_VERSION_MINOR(version)		((version >> 8) & 0xff)
-#define PCORE_VERSION_PATCH(version)		(version & 0xff)
-
-#define JESD204_RX_REG_VERSION				0x00
-#define JESD204_RX_REG_ID				0x04
-#define JESD204_RX_REG_SCRATCH				0x08
 #define JESD204_RX_REG_MAGIC				0x0c
 
 #define JESD204_RX_REG_SYNTH_NUM_LANES			0x10
@@ -118,15 +112,20 @@ static ssize_t axi_jesd204_rx_status_read(struct device *dev,
 	unsigned int sysref_status;
 	unsigned int link_disabled;
 	unsigned int link_status;
+	unsigned int link_config0;
 	unsigned int clock_ratio;
 	unsigned int clock_rate;
 	unsigned int link_rate;
+	unsigned int sysref_config;
+	unsigned int lmfc_rate;
 	int ret;
 
 	link_disabled = readl_relaxed(jesd->base + JESD204_RX_REG_LINK_STATE);
 	link_status = readl_relaxed(jesd->base + JESD204_RX_REG_LINK_STATUS);
 	sysref_status = readl_relaxed(jesd->base + JESD204_RX_REG_SYSREF_STATUS);
 	clock_ratio = readl_relaxed(jesd->base + JESD204_RX_REG_LINK_CLK_RATIO);
+	sysref_config = readl_relaxed(jesd->base + JESD204_RX_REG_SYSREF_CONF);
+	link_config0 = readl_relaxed(jesd->base + JESD204_RX_REG_LINK_CONF0);
 
 	ret = scnprintf(buf, PAGE_SIZE, "Link is %s\n",
 		(link_disabled & 0x1) ? "disabled" : "enabled");
@@ -152,19 +151,24 @@ static ssize_t axi_jesd204_rx_status_read(struct device *dev,
 
 		clock_rate = clk_get_rate(jesd->lane_clk);
 		link_rate = DIV_ROUND_CLOSEST(clock_rate, 40);
+		lmfc_rate = clock_rate / (10 * ((link_config0 & 0xFF) + 1));
 		ret += scnprintf(buf + ret, PAGE_SIZE - ret,
 			"Lane rate: %d.%.3d MHz\n"
-			"Lane rate / 40: %d.%.3d MHz\n",
+			"Lane rate / 40: %d.%.3d MHz\n"
+			"LMFC rate: %d.%.3d MHz\n",
 			clock_rate / 1000, clock_rate % 1000,
-			link_rate / 1000, link_rate % 1000);
+			link_rate / 1000, link_rate % 1000,
+			lmfc_rate / 1000, lmfc_rate % 1000);
 
 		ret += scnprintf(buf + ret, PAGE_SIZE - ret,
 			"Link status: %s\n"
 			"SYSREF captured: %s\n"
 			"SYSREF alignment error: %s\n",
 			axi_jesd204_rx_link_status_label[link_status & 0x3],
-			(sysref_status & 1) ? "Yes" : "No",
-			(sysref_status & 2) ? "Yes" : "No");
+			(sysref_config & JESD204_RX_REG_SYSREF_CONF_SYSREF_DISABLE) ?
+				"disabled" : (sysref_status & 1) ? "Yes" : "No",
+			(sysref_config & JESD204_RX_REG_SYSREF_CONF_SYSREF_DISABLE) ?
+				"disabled" : (sysref_status & 2) ? "Yes" : "No");
 	} else {
 		ret += scnprintf(buf + ret, PAGE_SIZE, "External reset is %s\n",
 			(link_disabled & 0x2) ? "asserted" : "deasserted");
@@ -203,7 +207,7 @@ static ssize_t axi_jesd204_rx_laneinfo_read(struct device *dev,
 
 	lane_status = readl_relaxed(jesd->base + JESD204_RX_REG_LANE_STATUS(lane));
 
-	if (PCORE_VERSION_MINOR(jesd->version) >= 2) {
+	if (ADI_AXI_PCORE_VER_MINOR(jesd->version) >= 2) {
 		errors = axi_jesd204_rx_get_lane_errors(jesd, lane);
 		ret += scnprintf(buf + ret, PAGE_SIZE - ret, "Errors: %u\n",
 				 errors);
@@ -245,19 +249,19 @@ static ssize_t axi_jesd204_rx_laneinfo_read(struct device *dev,
 		(val[0] >> 16) & 0xff,
 		(val[0] >> 24) & 0xf,
 		(val[1] >> 0) & 0x1f,
-		(val[1] >> 8) & 0x1f,
+		((val[1] >> 8) & 0x1f) + 1,
 		(val[1] >> 15) & 0x1,
-		(val[1] >> 16) & 0xff
+		((val[1] >> 16) & 0xff) + 1
 	);
 
 	ret += scnprintf(buf + ret, PAGE_SIZE - ret,
 		"K: %d, M: %d, N: %d, CS: %d, N': %d, S: %d, HD: %d\n",
-		(val[1] >> 24) & 0x1f,
-		(val[2] >> 0) & 0xff,
-		(val[2] >> 8) & 0x1f,
+		((val[1] >> 24) & 0x1f) + 1,
+		((val[2] >> 0) & 0xff) + 1,
+		((val[2] >> 8) & 0x1f) + 1,
 		(val[2] >> 14) & 0x3,
-		(val[2] >> 16) & 0x1f,
-		(val[2] >> 24) & 0x1f,
+		((val[2] >> 16) & 0x1f) + 1,
+		((val[2] >> 24) & 0x1f) + 1,
 		(val[3] >> 7) & 0x1
 	);
 
@@ -387,9 +391,9 @@ static bool axi_jesd_rx_regmap_rdwr(struct device *dev, unsigned int reg)
 	unsigned int i;
 
 	switch (reg) {
-	case JESD204_RX_REG_VERSION:
-	case JESD204_RX_REG_ID:
-	case JESD204_RX_REG_SCRATCH:
+	case ADI_AXI_REG_VERSION:
+	case ADI_AXI_REG_ID:
+	case ADI_AXI_REG_SCRATCH:
 	case JESD204_RX_REG_MAGIC:
 	case JESD204_RX_REG_SYNTH_NUM_LANES:
 	case JESD204_RX_REG_SYNTH_DATA_PATH_WIDTH:
@@ -451,7 +455,7 @@ static bool axi_jesd204_rx_check_lane_status(struct axi_jesd204_rx *jesd,
 		return false;
 
 
-	if (PCORE_VERSION_MINOR(jesd->version) >= 2) {
+	if (ADI_AXI_PCORE_VER_MINOR(jesd->version) >= 2) {
 		errors = axi_jesd204_rx_get_lane_errors(jesd, lane);
 		scnprintf(error_str, sizeof(error_str), " (%u errors)", errors);
 	} else {
@@ -497,6 +501,7 @@ static int axi_jesd204_rx_lane_clk_enable(struct clk_hw *clk)
 	struct axi_jesd204_rx *jesd =
 		container_of(clk, struct axi_jesd204_rx, dummy_clk);
 
+	writel_relaxed(0x3, jesd->base + JESD204_RX_REG_SYSREF_STATUS);
 	writel_relaxed(0x0, jesd->base + JESD204_RX_REG_LINK_DISABLE);
 
 	schedule_delayed_work(&jesd->watchdog_work, HZ);
@@ -551,11 +556,34 @@ static int axi_jesd204_register_dummy_clk(struct axi_jesd204_rx *jesd,
 	return 0;
 }
 
+static int axi_jesd204_rx_pcore_check(struct axi_jesd204_rx *jesd)
+{
+	unsigned int magic, version;
+
+	magic = readl_relaxed(jesd->base + JESD204_RX_REG_MAGIC);
+	if (magic != JESD204_RX_MAGIC) {
+		dev_err(jesd->dev, "Unexpected peripheral identifier %.08x\n",
+			magic);
+		return -ENODEV;
+	}
+
+	version = readl_relaxed(jesd->base + ADI_AXI_REG_VERSION);
+	if (ADI_AXI_PCORE_VER_MAJOR(version) != 1) {
+		dev_err(jesd->dev, "Unsupported peripheral version %u.%u.%c\n",
+			ADI_AXI_PCORE_VER_MAJOR(version),
+			ADI_AXI_PCORE_VER_MINOR(version),
+			ADI_AXI_PCORE_VER_PATCH(version));
+		return -ENODEV;
+	}
+	jesd->version = version;
+
+	return 0;
+}
+
 static int axi_jesd204_rx_probe(struct platform_device *pdev)
 {
 	struct jesd204_rx_config config;
 	struct axi_jesd204_rx *jesd;
-	unsigned int magic;
 	struct resource *res;
 	int irq;
 	int ret;
@@ -586,6 +614,10 @@ static int axi_jesd204_rx_probe(struct platform_device *pdev)
 
 	devm_regmap_init_mmio(&pdev->dev, jesd->base, &axi_jesd_rx_regmap_config);
 
+	ret = axi_jesd204_rx_pcore_check(jesd);
+	if (ret)
+		return ret;
+
 	jesd->axi_clk = devm_clk_get(&pdev->dev, "s_axi_aclk");
 	if (IS_ERR(jesd->axi_clk))
 		return PTR_ERR(jesd->axi_clk);
@@ -601,24 +633,6 @@ static int axi_jesd204_rx_probe(struct platform_device *pdev)
 	ret = clk_prepare_enable(jesd->axi_clk);
 	if (ret)
 		return ret;
-
-	magic = readl_relaxed(jesd->base + JESD204_RX_REG_MAGIC);
-	if (magic != JESD204_RX_MAGIC) {
-		dev_err(&pdev->dev, "Unexpected peripheral identifier %.08x\n",
-			magic);
-		ret = -ENODEV;
-		goto err_axi_clk_disable;
-	}
-
-	jesd->version = readl_relaxed(jesd->base + JESD204_RX_REG_VERSION);
-	if (PCORE_VERSION_MAJOR(jesd->version) != 1) {
-		dev_err(&pdev->dev, "Unsupported peripheral version %u.%u.%c\n",
-			PCORE_VERSION_MAJOR(jesd->version),
-			PCORE_VERSION_MINOR(jesd->version),
-			PCORE_VERSION_PATCH(jesd->version));
-		ret = -ENODEV;
-		goto err_axi_clk_disable;
-	}
 
 	jesd->num_lanes = readl_relaxed(jesd->base + JESD204_RX_REG_SYNTH_NUM_LANES);
 	jesd->data_path_width = readl_relaxed(jesd->base + JESD204_RX_REG_SYNTH_DATA_PATH_WIDTH);
@@ -659,11 +673,14 @@ static int axi_jesd204_rx_probe(struct platform_device *pdev)
 		device_create_file(&pdev->dev, &dev_attr_lane5_info);
 		device_create_file(&pdev->dev, &dev_attr_lane6_info);
 		device_create_file(&pdev->dev, &dev_attr_lane7_info);
+		/* fall-through */
 	case 4:
 		device_create_file(&pdev->dev, &dev_attr_lane2_info);
 		device_create_file(&pdev->dev, &dev_attr_lane3_info);
+		/* fall-through */
 	case 2:
 		device_create_file(&pdev->dev, &dev_attr_lane1_info);
+		/* fall-through */
 	case 1:
 		device_create_file(&pdev->dev, &dev_attr_lane0_info);
 		break;
