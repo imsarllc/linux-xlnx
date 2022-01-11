@@ -118,6 +118,7 @@ static ssize_t axi_jesd204_rx_status_read(struct device *dev,
 	unsigned int link_rate;
 	unsigned int sysref_config;
 	unsigned int lmfc_rate;
+	unsigned long long int axi_clock_rate;
 	int ret;
 
 	link_disabled = readl_relaxed(jesd->base + JESD204_RX_REG_LINK_STATE);
@@ -134,7 +135,8 @@ static ssize_t axi_jesd204_rx_status_read(struct device *dev,
 		ret += scnprintf(buf + ret, PAGE_SIZE - ret,
 			"Measured Link Clock: off\n");
 	} else {
-		clock_rate = DIV_ROUND_CLOSEST_ULL(100000ULL * clock_ratio,
+    axi_clock_rate = DIV_ROUND_CLOSEST(clk_get_rate(jesd->axi_clk), 1000);
+		clock_rate = DIV_ROUND_CLOSEST_ULL(axi_clock_rate * clock_ratio,
 			1ULL << 16);
 
 		ret += scnprintf(buf + ret, PAGE_SIZE - ret,
