@@ -69,6 +69,8 @@
 #define AXI_DMAC_REG_DBG0		0x43c
 #define AXI_DMAC_REG_DBG1		0x440
 #define AXI_DMAC_REG_DBG2		0x444
+#define AXI_DMAC_REG_PARITAL_LEN	0x44C
+#define AXI_DMAC_REG_PARITAL_ID 	0x450
 
 #define AXI_DMAC_CTRL_ENABLE		BIT(0)
 #define AXI_DMAC_CTRL_PAUSE		BIT(1)
@@ -78,6 +80,7 @@
 
 #define AXI_DMAC_FLAG_CYCLIC		BIT(0)
 #define AXI_DMAC_FLAG_LAST		BIT(1)
+#define AXI_DMAC_FLAG_REPORT_PARTIAL	BIT(2)
 
 #undef SPEED_TEST
 
@@ -233,7 +236,7 @@ static void axi_dmac_start_transfer(struct axi_dmac_chan *chan)
 		} else {
 			chan->next_desc = NULL;
 		}
-		flags |= AXI_DMAC_FLAG_LAST;
+		flags |= (AXI_DMAC_FLAG_LAST | AXI_DMAC_FLAG_REPORT_PARTIAL);
 	} else {
 		chan->next_desc = desc;
 	}
@@ -446,6 +449,7 @@ static struct axi_dmac_sg *axi_dmac_fill_linear_sg(struct axi_dmac_chan *chan,
 	segment_size = DIV_ROUND_UP(period_len, num_segments);
 	/* Take care of alignment */
 	segment_size = ((segment_size - 1) | chan->length_align_mask) + 1;
+	pr_debug("period_len=%u, max_len=%u, segment_size = %u, num_segments=%u\n", period_len, chan->max_length, segment_size, num_segments);
 
 	for (i = 0; i < num_periods; i++) {
 		len = period_len;
