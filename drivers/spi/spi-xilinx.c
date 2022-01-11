@@ -273,6 +273,7 @@ static void xspi_chipselect(struct spi_device *qspi, bool is_high)
 {
 	struct xilinx_spi *xqspi = spi_master_get_devdata(qspi->master);
 	u32 cs;
+	u32 fifo_level;
 
 	if (is_high) {
 		/* Deselect the slave */
@@ -281,6 +282,15 @@ static void xspi_chipselect(struct spi_device *qspi, bool is_high)
 	} else {
 		cs = xqspi->cs_inactive;
 		cs ^= BIT(qspi->chip_select);
+		/* Clear the RX fifo before selecting a new slave */
+		fifo_level = xqspi->read_fn(xqspi->regs + 0x78);
+		if (fifo_level)
+		{
+		dev_err(&qspi->dev, "RX FIFO was not emptied last time: %u words remaining", fifo_level);
+			xqspi->write_fn(XSPI_CR_MANUAL_SSELECT |	XSPI_CR_MASTER_MODE |
+				XSPI_CR_ENABLE | XSPI_CR_TXFIFO_RESET |	XSPI_CR_RXFIFO_RESET,
+				xqspi->regs + XSPI_CR_OFFSET);
+		}
 		/* Activate the chip select */
 		xqspi->write_fn(cs, xqspi->regs + XSPI_SSR_OFFSET);
 	}
