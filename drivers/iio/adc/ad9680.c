@@ -602,8 +602,9 @@ static int ad9680_setup_jesd204_link(struct axiadc_converter *conv,
 	lane_rate_kHz = DIV_ROUND_CLOSEST(sample_rate, 100);
 
 	if (lane_rate_kHz < 3125000 || lane_rate_kHz > 12500000) {
-		dev_err(&conv->spi->dev, "Lane rate %lu Mbps out of bounds. Must be between 3125 and 12500 Mbps",
-			lane_rate_kHz / 1000);
+		dev_err(&conv->spi->dev, "Lane rate %lu Mbps out of bounds. Must be between 3125 and 12500 Mbps. sample_rate=%u ",
+			lane_rate_kHz / 1000, sample_rate);
+    dump_stack();
 		return -EINVAL;
 	}
 
