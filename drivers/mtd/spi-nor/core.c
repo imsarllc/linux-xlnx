@@ -3568,10 +3568,9 @@ static void spi_nor_try_unlock_all(struct spi_nor *nor)
 		if (info->flags & SST_GLOBAL_PROT_UNLK) {
 			spi_nor_prot_unlock(nor);
 		} else {
-			return spi_nor_unlock(&nor->mtd, 0, nor->params->size);
+			spi_nor_unlock(&nor->mtd, 0, nor->params->size);
 		}
 	}
-	return 0;
 }
 
 static int spi_nor_init(struct spi_nor *nor)
