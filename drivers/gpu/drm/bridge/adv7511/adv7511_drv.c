@@ -22,6 +22,12 @@
 
 #include "adv7511.h"
 
+#if defined(DEBUG)
+#define adv_trace	trace_printk
+#else
+#define adv_trace(...)
+#endif /* adv_trace */
+
 /* ADI recommended values for proper operation. */
 static const struct reg_sequence adv7511_fixed_registers[] = {
 	{ 0x98, 0x03 },
@@ -467,6 +473,9 @@ static int adv7511_irq_process(struct adv7511 *adv7511, bool process_hpd)
 	if (ret < 0)
 		return ret;
 
+	adv_trace(": IRQ reg 0x96 = 0x%02x, IRQ reg 0x97 = 0x%02x\n", irq0,
+		  irq1);
+
 	regmap_write(adv7511->regmap, ADV7511_REG_INT(0), irq0);
 	regmap_write(adv7511->regmap, ADV7511_REG_INT(1), irq1);
 
@@ -527,10 +536,7 @@ static int adv7511_get_edid_block(void *data, u8 *buf, unsigned int block,
 				  size_t len)
 {
 	struct adv7511 *adv7511 = data;
-	struct i2c_msg xfer[2];
-	uint8_t offset;
-	unsigned int i;
-	int ret;
+	int ret, off;
 
 	if (len > 128)
 		return -EINVAL;
@@ -552,31 +558,11 @@ static int adv7511_get_edid_block(void *data, u8 *buf, unsigned int block,
 				return ret;
 		}
 
-		/* Break this apart, hopefully more I2C controllers will
-		 * support 64 byte transfers than 256 byte transfers
-		 */
-
-		xfer[0].addr = adv7511->i2c_edid->addr;
-		xfer[0].flags = 0;
-		xfer[0].len = 1;
-		xfer[0].buf = &offset;
-		xfer[1].addr = adv7511->i2c_edid->addr;
-		xfer[1].flags = I2C_M_RD;
-		xfer[1].len = 64;
-		xfer[1].buf = adv7511->edid_buf;
-
-		offset = 0;
-
-		for (i = 0; i < 4; ++i) {
-			ret = i2c_transfer(adv7511->i2c_edid->adapter, xfer,
-					   ARRAY_SIZE(xfer));
+		for (off = 0; off < 256; off+= 64) {
+			ret = regmap_bulk_read(adv7511->regmap_edid, off,
+					       &adv7511->edid_buf[off], 64);
 			if (ret < 0)
 				return ret;
-			else if (ret != 2)
-				return -EIO;
-
-			xfer[1].buf += 64;
-			offset += 64;
 		}
 
 		adv7511->current_edid_segment = block / 2;
@@ -589,6 +575,14 @@ static int adv7511_get_edid_block(void *data, u8 *buf, unsigned int block,
 
 	return 0;
 }
+
+static const struct regmap_config adv7511_edid_regmap_config = {
+	.reg_bits = 8,
+	.val_bits = 8,
+
+	.max_register = 0xff,
+	.cache_type = REGCACHE_NONE,
+};
 
 /* -----------------------------------------------------------------------------
  * ADV75xx helpers
@@ -771,8 +765,13 @@ static void adv7511_mode_set(struct adv7511 *adv7511,
 	else
 		low_refresh_rate = ADV7511_LOW_REFRESH_RATE_NONE;
 
-	regmap_update_bits(adv7511->regmap, 0xfb,
-		0x6, low_refresh_rate << 1);
+	if (adv7511->type == ADV7511)
+		regmap_update_bits(adv7511->regmap, 0xfb,
+			0x6, low_refresh_rate << 1);
+	else
+		regmap_update_bits(adv7511->regmap, 0x4a,
+			0xc, low_refresh_rate << 2);
+
 	regmap_update_bits(adv7511->regmap, 0x17,
 		0x60, (vsync_polarity << 6) | (hsync_polarity << 5));
 
@@ -917,7 +916,16 @@ static int adv7511_bridge_attach(struct drm_bridge *bridge,
 		regmap_write(adv->regmap, ADV7511_REG_INT_ENABLE(0),
 			     ADV7511_INT0_HPD);
 
+	adv7511_debugfs_init(adv);
+
 	return ret;
+}
+
+static void adv7511_bridge_detach(struct drm_bridge *bridge)
+{
+	struct adv7511 *adv = bridge_to_adv7511(bridge);
+
+	adv7511_debugfs_remove(adv);
 }
 
 static enum drm_connector_status adv7511_bridge_detect(struct drm_bridge *bridge)
@@ -949,6 +957,7 @@ static const struct drm_bridge_funcs adv7511_bridge_funcs = {
 	.disable = adv7511_bridge_disable,
 	.mode_set = adv7511_bridge_mode_set,
 	.attach = adv7511_bridge_attach,
+	.detach = adv7511_bridge_detach,
 	.detect = adv7511_bridge_detect,
 	.get_edid = adv7511_bridge_get_edid,
 	.hpd_notify = adv7511_bridge_hpd_notify,
@@ -1157,8 +1166,9 @@ static int adv7511_probe(struct i2c_client *i2c, const struct i2c_device_id *id)
 	struct adv7511_link_config link_config;
 	struct adv7511 *adv7511;
 	struct device *dev = &i2c->dev;
+	struct regulator *reg_v1p2;
 	unsigned int val;
-	int ret;
+	int ret, reg_v1p2_uV;
 
 	if (!dev->of_node)
 		return -EINVAL;
@@ -1226,6 +1236,18 @@ static int adv7511_probe(struct i2c_client *i2c, const struct i2c_device_id *id)
 	if (ret)
 		goto uninit_regulators;
 
+	if (adv7511->type == ADV7533) {
+		ret = match_string(adv7533_supply_names, adv7511->num_supplies,
+									"v1p2");
+		reg_v1p2 = adv7511->supplies[ret].consumer;
+		reg_v1p2_uV = regulator_get_voltage(reg_v1p2);
+
+		if (reg_v1p2_uV == 1200000) {
+			regmap_update_bits(adv7511->regmap,
+				ADV7511_REG_SUPPLY_SELECT, 0x80, 0x80);
+		}
+	}
+
 	adv7511_packet_disable(adv7511, 0xffff);
 
 	adv7511->i2c_edid = i2c_new_ancillary_device(i2c, "edid",
@@ -1233,6 +1255,13 @@ static int adv7511_probe(struct i2c_client *i2c, const struct i2c_device_id *id)
 	if (IS_ERR(adv7511->i2c_edid)) {
 		ret = PTR_ERR(adv7511->i2c_edid);
 		goto uninit_regulators;
+	}
+
+	adv7511->regmap_edid = devm_regmap_init_i2c(adv7511->i2c_edid,
+						&adv7511_edid_regmap_config);
+	if (IS_ERR(adv7511->regmap_edid)) {
+		ret = PTR_ERR(adv7511->regmap_edid);
+		goto err_i2c_unregister_edid;
 	}
 
 	regmap_write(adv7511->regmap, ADV7511_REG_EDID_I2C_ADDR,

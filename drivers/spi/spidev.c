@@ -723,6 +723,7 @@ static const struct of_device_id spidev_dt_ids[] = {
 	{ .compatible = "dh,dhcom-board" },
 	{ .compatible = "menlo,m53cpld" },
 	{ .compatible = "tegra-spidev" },
+	{ .compatible = "adi,swspi" },
 	{},
 };
 MODULE_DEVICE_TABLE(of, spidev_dt_ids);

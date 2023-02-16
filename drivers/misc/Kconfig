@@ -50,6 +50,17 @@ config AD525X_DPOT_SPI
 	  To compile this driver as a module, choose M here: the
 	  module will be called ad525x_dpot-spi.
 
+config ADI_AXI_DATA_OFFLOAD
+	bool "support Analog Devices Data Offload Engine"
+	depends on HAS_IOMEM
+	depends on OF
+	help
+	  The data offload engine is effectively just a stream FIFO with
+	  some extra configurability.
+
+	  This option is usually not enabled manually but rather by other
+	  drivers that use the data offload engine to manage DMA transfers.
+
 config ATMEL_TCLIB
 	bool "Atmel AT32/AT91 Timer/Counter Library"
 	depends on ARCH_AT91
@@ -173,6 +184,14 @@ config ATMEL_SSC
 
 	  The SSC peripheral supports a wide variety of serial frame based
 	  communications, i.e. I2S, SPI, etc.
+
+	  If unsure, say N.
+
+config XLNX_LCD
+	tristate "Device driver for Xilinx Character LCD"
+	depends on PPC_OF || MICROBLAZE
+	help
+	  This option enables device driver support for an Char LCD via GPIO
 
 	  If unsure, say N.
 
@@ -444,6 +463,41 @@ config XILINX_SDFEC
 
 	  If unsure, say N.
 
+config XILINX_FLEX_PM
+	tristate "Xilinx Flexnoc Performance Monitor"
+	help
+	  This option enables support for the Xilinx Flex Noc Performance Monitor driver.
+	  It monitors the read and write transactions. It has counters for the LPD and
+	  FPD domains.
+
+	  If unsure, say N
+
+config XILINX_TRAFGEN
+	tristate "Xilinx Traffic Generator"
+	help
+	  This option enables support for the Xilinx Traffic Generator driver.
+	  It is designed to generate AXI4 traffic which can be used to stress
+	  different modules/interconnect connected in the system. Different
+	  configurable options which are provided through sysfs entries allow
+	  allow the user to generate a wide variety of traffic based on their
+	  their requirements.
+
+	  If unsure, say N
+
+config XILINX_AIE
+	tristate "Xilinx AI engine"
+	depends on ARM64 || COMPILE_TEST
+	depends on ZYNQMP_FIRMWARE
+	select FPGA_BRIDGE
+	help
+	  This option enables support for the Xilinx AI engine driver.
+	  One Xilinx AI engine device can have multiple partitions (groups of
+	  AI engine tiles). Xilinx AI engine device driver instance manages
+	  AI engine partitions. User application access its partitions through
+	  AI engine partition instance file operations.
+
+	  If unsure, say N
+
 config MISC_RTSX
 	tristate
 	default MISC_RTSX_PCI || MISC_RTSX_USB
@@ -466,6 +520,7 @@ config HISI_HIKEY_USB
 	  switching between the dual-role USB-C port and the USB-A host ports
 	  using only one USB controller.
 
+source "drivers/misc/jesd204b/Kconfig"
 source "drivers/misc/c2port/Kconfig"
 source "drivers/misc/eeprom/Kconfig"
 source "drivers/misc/cb710/Kconfig"
@@ -473,6 +528,7 @@ source "drivers/misc/ti-st/Kconfig"
 source "drivers/misc/lis3lv02d/Kconfig"
 source "drivers/misc/altera-stapl/Kconfig"
 source "drivers/misc/mei/Kconfig"
+source "drivers/misc/mathworks/Kconfig"
 source "drivers/misc/vmw_vmci/Kconfig"
 source "drivers/misc/genwqe/Kconfig"
 source "drivers/misc/echo/Kconfig"

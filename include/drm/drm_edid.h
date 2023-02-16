@@ -24,6 +24,7 @@
 #define __DRM_EDID_H__
 
 #include <linux/types.h>
+#include <drm/drm_crtc.h>
 #include <linux/hdmi.h>
 #include <drm/drm_mode.h>
 
@@ -388,6 +389,10 @@ int
 drm_hdmi_infoframe_set_hdr_metadata(struct hdmi_drm_infoframe *frame,
 				    const struct drm_connector_state *conn_state);
 
+int
+drm_hdmi_infoframe_set_gen_hdr_metadata(struct hdmi_drm_infoframe *frame,
+					const struct drm_connector_state *conn_state);
+
 /**
  * drm_eld_mnl - Get ELD monitor name length in bytes.
  * @eld: pointer to an eld memory structure with mnl set
@@ -452,6 +457,21 @@ static inline int drm_eld_calc_baseline_block_size(const uint8_t *eld)
 static inline int drm_eld_size(const uint8_t *eld)
 {
 	return DRM_ELD_HEADER_BLOCK_SIZE + eld[DRM_ELD_BASELINE_ELD_LEN] * 4;
+}
+
+/**
+ * drm_connector_get_edid - Get current EDID from the given connector
+ * @connector: pointer to the connector stucture
+ *
+ * This is a helper for accessing the drm blob buffered in the connector
+ * struct (if any)
+ */
+static inline struct edid *drm_connector_get_edid(struct drm_connector *connector)
+{
+	if (!connector->edid_blob_ptr)
+		return NULL;
+
+	return (struct edid *)connector->edid_blob_ptr->data;
 }
 
 /**

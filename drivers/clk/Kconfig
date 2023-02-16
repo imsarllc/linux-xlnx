@@ -158,6 +158,37 @@ config COMMON_CLK_BM1880
 	help
 	  This driver supports the clocks on Bitmain BM1880 SoC.
 
+config COMMON_CLK_SI5324
+	tristate "Clock driver for SiLabs 5324 and compatible devices"
+	depends on I2C
+	depends on OF
+	select REGMAP_I2C
+	help
+	  This driver supports Silicon Labs 5324/5319/5328 programmable
+	  clock generators. Dynamic programming of the oscillator is done
+	  via I2C.
+
+config COMMON_CLK_IDT8T49N24X
+	tristate "Clock driver for IDT 8T49N24x"
+	depends on I2C
+	depends on OF
+	select REGMAP_I2C
+	help
+	  This driver supports the IDT 8T49N24x universal frequency translator
+	  product family.  The only chip in the family that is currently
+	  supported is the 8T49N241. The driver supports setting the rate for
+	  all four outputs on the chip and automatically calculating/setting
+	  the appropriate VCO value.
+
+	  The driver can read a full register map from the DT,
+	  and will use that register map to initialize the attached part
+	  (via I2C) when the system boots. Any configuration not supported
+	  by the common clock framework must be done via the full register
+	  map, including optimized settings.
+
+	  All outputs are currently assumed to be LVDS, unless overridden
+	  in the full register map in the DT.
+
 config COMMON_CLK_CDCE706
 	tristate "Clock driver for TI CDCE706 clock synthesizer"
 	depends on I2C
@@ -239,7 +270,7 @@ config CLK_TWL6040
 
 config COMMON_CLK_AXI_CLKGEN
 	tristate "AXI clkgen driver"
-	depends on ARCH_ZYNQ || MICROBLAZE || COMPILE_TEST
+	depends on ARCH_ZYNQ || ARCH_ZYNQMP || MICROBLAZE || COMPILE_TEST
 	help
 	  Support for the Analog Devices axi-clkgen pcore clock generator for Xilinx
 	  FPGAs. It is commonly used in Analog Devices' reference designs.
@@ -250,6 +281,11 @@ config CLK_QORIQ
 	help
 	  This adds the clock driver support for Freescale QorIQ platforms
 	  using common clock framework.
+
+config COMMON_CLK_ADI
+	def_bool COMMON_CLK
+	help
+	  Support for Analog Devices clock providers.
 
 config CLK_LS1028A_PLLDIG
         tristate "Clock driver for LS1028A Display output"
@@ -311,6 +347,23 @@ config COMMON_CLK_OXNAS
 	help
 	  Support for the OXNAS SoC Family clocks.
 
+config COMMON_CLK_ALTERA_A10_FPLL
+	tristate "Clock driver for Altera Arria10 FPLL"
+	depends on ARCH_SOCFPGA || NIOS2
+	help
+	  Support for the Altera Fractional PLL found in the reconfiguable logic
+	  of Arria10 and Arria10 SoC FPGAs.
+
+config COMMON_CLK_ALTERA_C5_FPLL
+	tristate "Clock driver for Altera Cyclone5 FPLL"
+	depends on OF && (ARCH_SOCFPGA || NIOS2)
+	help
+	  Support for the Altera Fractional PLL found in the reconfigurable
+	  logic of Cyclone5 and Cyclone5 SoC FPGAs.
+
+	  The Cyclone5 Fractional PLL can generate up to 9 clock output
+	  signals.
+
 config COMMON_CLK_VC5
 	tristate "Clock driver for IDT VersaClock 5,6 devices"
 	depends on I2C
@@ -359,7 +412,23 @@ config COMMON_CLK_FIXED_MMIO
 	help
 	  Support for Memory Mapped IO Fixed clocks
 
+config COMMON_CLK_XLNX_CLKWZRD
+	tristate "Xilinx Clocking Wizard"
+	depends on COMMON_CLK && OF
+	help
+	  Support for the Xilinx Clocking Wizard IP core clock generator.
+
+config COMMON_CLK_XLNX_CLKWZRD_V
+	tristate "Xilinx Versal Clocking Wizard"
+	depends on COMMON_CLK && OF
+	help
+	  Support for the Versal Xilinx Clocking Wizard IP core clock generator.
+	  Adds support for Versal clocking wizard 1.0 and compatible.
+	  This driver supports the Xilinx clocking wizard programmable clock
+	  synthesizer. The number of output is configurable in the design.
+
 source "drivers/clk/actions/Kconfig"
+source "drivers/clk/adi/Kconfig"
 source "drivers/clk/analogbits/Kconfig"
 source "drivers/clk/baikal-t1/Kconfig"
 

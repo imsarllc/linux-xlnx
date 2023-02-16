@@ -576,8 +576,6 @@ static int compat_setend_handler(struct pt_regs *regs, u32 big_endian)
 	}
 
 	trace_instruction_emulation(insn, regs->pc);
-	pr_warn_ratelimited("\"%s\" (%ld) uses deprecated setend instruction at 0x%llx\n",
-			current->comm, (unsigned long)current->pid, regs->pc);
 
 	return 0;
 }

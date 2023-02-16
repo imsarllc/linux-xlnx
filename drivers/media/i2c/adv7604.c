@@ -203,6 +203,7 @@ struct adv76xx_state {
 	struct v4l2_ctrl *analog_sampling_phase_ctrl;
 	struct v4l2_ctrl *free_run_color_manual_ctrl;
 	struct v4l2_ctrl *free_run_color_ctrl;
+	struct v4l2_ctrl *free_run_mode_ctrl;
 	struct v4l2_ctrl *rgb_quantization_range_ctrl;
 };
 
@@ -280,6 +281,8 @@ static const struct adv76xx_video_standards adv7604_prim_mode_gr[] = {
 static const struct adv76xx_video_standards adv76xx_prim_mode_hdmi_comp[] = {
 	{ V4L2_DV_BT_CEA_720X480P59_94, 0x0a, 0x00 },
 	{ V4L2_DV_BT_CEA_720X576P50, 0x0b, 0x00 },
+	{ V4L2_DV_BT_CEA_1280X720P24, 0x13, 0x04 },
+	{ V4L2_DV_BT_CEA_1280X720P25, 0x13, 0x03 },
 	{ V4L2_DV_BT_CEA_1280X720P50, 0x13, 0x01 },
 	{ V4L2_DV_BT_CEA_1280X720P60, 0x13, 0x00 },
 	{ V4L2_DV_BT_CEA_1920X1080P24, 0x1e, 0x04 },
@@ -305,8 +308,17 @@ static const struct adv76xx_video_standards adv76xx_prim_mode_hdmi_gr[] = {
 	{ V4L2_DV_BT_DMT_1024X768P70, 0x0d, 0x00 },
 	{ V4L2_DV_BT_DMT_1024X768P75, 0x0e, 0x00 },
 	{ V4L2_DV_BT_DMT_1024X768P85, 0x0f, 0x00 },
+	{ V4L2_DV_BT_DMT_1280X768P60, 0x10, 0x00 },
+	{ V4L2_DV_BT_DMT_1280X768P60_RB, 0x11, 0x00 },
 	{ V4L2_DV_BT_DMT_1280X1024P60, 0x05, 0x00 },
 	{ V4L2_DV_BT_DMT_1280X1024P75, 0x06, 0x00 },
+	{ V4L2_DV_BT_DMT_1360X768P60, 0x12, 0x00 },
+	{ V4L2_DV_BT_DMT_1366X768P60, 0x13, 0x00 },
+	{ V4L2_DV_BT_DMT_1400X1050P60, 0x14, 0x00 },
+	{ V4L2_DV_BT_DMT_1400X1050P75, 0x15, 0x00 },
+	{ V4L2_DV_BT_DMT_1600X1200P60, 0x16, 0x00 },
+	{ V4L2_DV_BT_DMT_1680X1050P60, 0x18, 0x00 },
+	{ V4L2_DV_BT_DMT_1920X1200P60_RB, 0x19, 0x00 },
 	{ },
 };
 
@@ -1235,6 +1247,30 @@ static int adv76xx_s_ctrl(struct v4l2_ctrl *ctrl)
 		cp_write(sd, 0xc1, (ctrl->val & 0x00ff00) >> 8);
 		cp_write(sd, 0xc2, (u8)(ctrl->val & 0x0000ff));
 		return 0;
+	case V4L2_CID_ADV_RX_FREE_RUN_MODE:
+		switch (ctrl->val) {
+		case 0: /* Disabled */
+			/* Disable the free run feature in HDMI mode. */
+			cp_write_clr_set(sd, 0xba, 0x1, 0);
+			/* Do not force the CP core free run. */
+			cp_write_clr_set(sd, 0xbf, 0x1, 0);
+			break;
+		case 1: /* Enabled */
+			/* Enable the free run feature in HDMI mode. */
+			cp_write_clr_set(sd, 0xba, 0x1, 1);
+			/* Force the CP core to free run. */
+			cp_write_clr_set(sd, 0xbf, 0x1, 1);
+			break;
+		case 2: /* Automatic */
+			/* Enable the free run feature in HDMI mode. */
+			cp_write_clr_set(sd, 0xba, 0x1, 1);
+			/* Do not force the CP core free run. */
+			cp_write_clr_set(sd, 0xbf, 0x1, 0);
+			break;
+		default:
+			break;
+		}
+		return 0;
 	}
 	return -EINVAL;
 }
@@ -1784,7 +1820,7 @@ static void select_input(struct v4l2_subdev *sd)
 			afe_write(sd, 0xc8, 0x40); /* phase control */
 		}
 
-		cp_write(sd, 0x3e, 0x00); /* CP core pre-gain control */
+		cp_write(sd, 0x3e, 0x80); /* CP core pre-gain control */
 		cp_write(sd, 0xc3, 0x39); /* CP coast control. Graphics mode */
 		cp_write(sd, 0x40, 0x80); /* CP core pre-gain control. Graphics mode */
 	} else {
@@ -2193,6 +2229,7 @@ static int adv76xx_isr(struct v4l2_subdev *sd, u32 status, bool *handled)
 	const u8 irq_reg_0x70 = io_read(sd, 0x70);
 	u8 fmt_change_digital;
 	u8 fmt_change;
+	u8 hdmi_mode;
 	u8 tx_5v;
 
 	if (irq_reg_0x43)
@@ -2220,8 +2257,17 @@ static int adv76xx_isr(struct v4l2_subdev *sd, u32 status, bool *handled)
 		if (handled)
 			*handled = true;
 	}
+
+	if (info->type == ADV7604) {
+		hdmi_mode = irq_reg_0x6b & 0x1;
+	} else {
+		hdmi_mode = io_read(sd, 0x66);
+		io_write(sd, 0x67, hdmi_mode);
+		hdmi_mode &= 0x08;
+	}
+
 	/* HDMI/DVI mode */
-	if (irq_reg_0x6b & 0x01) {
+	if (hdmi_mode) {
 		v4l2_dbg(1, debug, sd, "%s: irq %s mode\n", __func__,
 			(io_read(sd, 0x6a) & 0x01) ? "HDMI" : "DVI");
 		set_rgb_quantization_range(sd);
@@ -2756,6 +2802,23 @@ static const struct v4l2_ctrl_config adv76xx_ctrl_free_run_color = {
 	.def = 0x0,
 };
 
+static const char * const adv76xx_free_run_mode_strings[] = {
+	"Disabled",
+	"Enabled",
+	"Automatic",
+};
+
+static const struct v4l2_ctrl_config adv76xx_ctrl_free_run_mode = {
+	.ops = &adv76xx_ctrl_ops,
+	.id = V4L2_CID_ADV_RX_FREE_RUN_MODE,
+	.name = "Free Running Mode",
+	.type = V4L2_CTRL_TYPE_MENU,
+	.min = 0,
+	.max = ARRAY_SIZE(adv76xx_free_run_mode_strings) - 1,
+	.def = 2,
+	.qmenu = adv76xx_free_run_mode_strings,
+};
+
 /* ----------------------------------------------------------------------- */
 
 struct adv76xx_register_map {
@@ -2861,6 +2924,7 @@ static void adv7604_setup_irqs(struct v4l2_subdev *sd)
 static void adv7611_setup_irqs(struct v4l2_subdev *sd)
 {
 	io_write(sd, 0x41, 0xd0); /* STDI irq for any change, disable INT2 */
+	io_write(sd, 0x69, 0x08); /* HDMI mode interrupt */
 }
 
 static void adv7612_setup_irqs(struct v4l2_subdev *sd)
@@ -3040,7 +3104,7 @@ static const struct adv76xx_chip_info adv76xx_chip_info[] = {
 		.lcf_reg = 0xa3,
 		.tdms_lock_mask = 0x43,
 		.cable_det_mask = 0x01,
-		.fmt_change_digital_mask = 0x03,
+		.fmt_change_digital_mask = 0x01,
 		.cp_csc = 0xf4,
 		.cec_irq_status = 0x93,
 		.cec_rx_enable = 0x2c,
@@ -3512,6 +3576,8 @@ static int adv76xx_probe(struct i2c_client *client,
 		v4l2_ctrl_new_custom(hdl, &adv76xx_ctrl_free_run_color_manual, NULL);
 	state->free_run_color_ctrl =
 		v4l2_ctrl_new_custom(hdl, &adv76xx_ctrl_free_run_color, NULL);
+	state->free_run_mode_ctrl =
+		v4l2_ctrl_new_custom(hdl, &adv76xx_ctrl_free_run_mode, NULL);
 
 	sd->ctrl_handler = hdl;
 	if (hdl->error) {

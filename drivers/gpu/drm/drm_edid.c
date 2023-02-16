@@ -73,6 +73,8 @@
 #define EDID_QUIRK_DETAILED_USE_MAXIMUM_SIZE	(1 << 4)
 /* use +hsync +vsync for detailed mode */
 #define EDID_QUIRK_DETAILED_SYNC_PP		(1 << 6)
+/* No or broken YCrCb input support */
+#define EDID_QUIRK_NO_YCRCB		(1 << 7)
 /* Force reduced-blanking timings for detailed modes */
 #define EDID_QUIRK_FORCE_REDUCED_BLANKING	(1 << 7)
 /* Force 8bpc */
@@ -149,6 +151,9 @@ static const struct edid_quirk {
 	/* Samsung SyncMaster 22[5-6]BW */
 	{ "SAM", 596, EDID_QUIRK_PREFER_LARGE_60 },
 	{ "SAM", 638, EDID_QUIRK_PREFER_LARGE_60 },
+
+	/* Denon AVR */
+	{ "DON", 25, EDID_QUIRK_NO_YCRCB },
 
 	/* Sony PVM-2541A does up to 12 bpc, but only reports max 8 bpc */
 	{ "SNY", 0x2541, EDID_QUIRK_FORCE_12BPC },
@@ -5379,6 +5384,11 @@ int drm_add_edid_modes(struct drm_connector *connector, struct edid *edid)
 	if (quirks & EDID_QUIRK_FORCE_6BPC)
 		connector->display_info.bpc = 6;
 
+	if (quirks & EDID_QUIRK_NO_YCRCB) {
+		connector->display_info.color_formats &=
+			~(DRM_COLOR_FORMAT_YCRCB444 | DRM_COLOR_FORMAT_YCRCB422);
+	}
+
 	if (quirks & EDID_QUIRK_FORCE_8BPC)
 		connector->display_info.bpc = 8;
 
@@ -5590,6 +5600,79 @@ static u8 drm_mode_cea_vic(const struct drm_connector *connector,
 
 	return vic;
 }
+
+/**
+ * drm_hdmi_infoframe_set_gen_hdr_metadata() - fill an HDMI DRM infoframe with
+ *                                             HDR metadata from userspace
+ * @frame: HDMI DRM infoframe
+ * @conn_state: Connector state containing HDR metadata
+ *
+ * Return: 0 on success or a negative error code on failure.
+ */
+int
+drm_hdmi_infoframe_set_gen_hdr_metadata(struct hdmi_drm_infoframe *frame,
+					const struct drm_connector_state *conn_state)
+{
+	struct drm_connector *connector;
+	struct gen_hdr_output_metadata *gen_hdr_metadata;
+	struct hdr_metadata_infoframe *hdr_infoframe;
+	int err;
+
+	if (!frame || !conn_state)
+		return -EINVAL;
+
+	connector = conn_state->connector;
+
+	if (!conn_state->gen_hdr_output_metadata)
+		return -EINVAL;
+
+	gen_hdr_metadata = conn_state->gen_hdr_output_metadata->data;
+
+	if (!gen_hdr_metadata || !connector)
+		return -EINVAL;
+
+	if (gen_hdr_metadata->metadata_type == DRM_HDR_TYPE_HDR10) {
+		hdr_infoframe = (struct hdr_metadata_infoframe *)
+			gen_hdr_metadata->payload;
+
+		/* Sink EOTF is Bit map while infoframe is absolute values */
+		if (!is_eotf_supported(hdr_infoframe->eotf,
+		    connector->hdr_sink_metadata.hdmi_type1.eotf)) {
+			DRM_DEBUG_KMS("EOTF Not Supported\n");
+			return -EINVAL;
+		}
+
+		err = hdmi_drm_infoframe_init(frame);
+		if (err < 0)
+			return err;
+
+		frame->eotf = hdr_infoframe->eotf;
+		frame->metadata_type = hdr_infoframe->metadata_type;
+
+		BUILD_BUG_ON(sizeof(frame->display_primaries) !=
+			     sizeof(hdr_infoframe->display_primaries));
+		BUILD_BUG_ON(sizeof(frame->white_point) !=
+			     sizeof(hdr_infoframe->white_point));
+
+		memcpy(&frame->display_primaries,
+		       &hdr_infoframe->display_primaries,
+		       sizeof(frame->display_primaries));
+
+		memcpy(&frame->white_point,
+		       &hdr_infoframe->white_point,
+		       sizeof(frame->white_point));
+
+		frame->max_display_mastering_luminance =
+			hdr_infoframe->max_display_mastering_luminance;
+		frame->min_display_mastering_luminance =
+			hdr_infoframe->min_display_mastering_luminance;
+		frame->max_fall = hdr_infoframe->max_fall;
+		frame->max_cll = hdr_infoframe->max_cll;
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL(drm_hdmi_infoframe_set_gen_hdr_metadata);
 
 /**
  * drm_hdmi_avi_infoframe_from_display_mode() - fill an HDMI AVI infoframe with

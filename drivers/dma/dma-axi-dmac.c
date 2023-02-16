@@ -18,6 +18,7 @@
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/of_dma.h>
+#include <linux/of_address.h>
 #include <linux/platform_device.h>
 #include <linux/regmap.h>
 #include <linux/slab.h>
@@ -55,6 +56,9 @@
 #define   AXI_DMAC_DMA_DST_TYPE_GET(x)	FIELD_GET(AXI_DMAC_DMA_DST_TYPE_MSK, x)
 #define   AXI_DMAC_DMA_DST_WIDTH_MSK	GENMASK(3, 0)
 #define   AXI_DMAC_DMA_DST_WIDTH_GET(x)	FIELD_GET(AXI_DMAC_DMA_DST_WIDTH_MSK, x)
+#define AXI_DMAC_REG_COHERENCY_DESC	0x14
+#define   AXI_DMAC_DST_COHERENT_MSK	BIT(0)
+#define   AXI_DMAC_DST_COHERENT_GET(x)	FIELD_GET(AXI_DMAC_DST_COHERENT_MSK, x)
 
 #define AXI_DMAC_REG_IRQ_MASK		0x80
 #define AXI_DMAC_REG_IRQ_PENDING	0x84
@@ -75,6 +79,9 @@
 #define AXI_DMAC_REG_STATUS		0x430
 #define AXI_DMAC_REG_CURRENT_SRC_ADDR	0x434
 #define AXI_DMAC_REG_CURRENT_DEST_ADDR	0x438
+#define AXI_DMAC_REG_DBG0		0x43c
+#define AXI_DMAC_REG_DBG1		0x440
+#define AXI_DMAC_REG_DBG2		0x444
 #define AXI_DMAC_REG_PARTIAL_XFER_LEN	0x44c
 #define AXI_DMAC_REG_PARTIAL_XFER_ID	0x450
 
@@ -498,8 +505,13 @@ static struct axi_dmac_sg *axi_dmac_fill_linear_sg(struct axi_dmac_chan *chan,
 	unsigned int segment_size;
 	unsigned int len;
 
-	/* Split into multiple equally sized segments if necessary */
-	num_segments = DIV_ROUND_UP(period_len, chan->max_length);
+	/*
+	 * Split into multiple equally sized segments if necessary.
+	 * chan->max_length can be UINT_MAX, so ensure there are no overflows
+	 * resuting in divide-by-zero errors by casting to u64.
+	 */
+	num_segments = DIV_ROUND_UP_ULL((u64)period_len,
+					(u64)chan->max_length);
 	segment_size = DIV_ROUND_UP(period_len, num_segments);
 	/* Take care of alignment */
 	segment_size = ((segment_size - 1) | chan->length_align_mask) + 1;
@@ -571,6 +583,21 @@ static struct dma_async_tx_descriptor *axi_dmac_prep_slave_sg(
 	desc->cyclic = false;
 
 	return vchan_tx_prep(&chan->vchan, &desc->vdesc, flags);
+}
+
+static int axi_dmac_device_config(struct dma_chan *c,
+			struct dma_slave_config *slave_config)
+{
+	struct axi_dmac_chan *chan = to_axi_dmac_chan(c);
+	struct axi_dmac *dmac = chan_to_axi_dmac(chan);
+
+	/* no configuration required, a sanity check is done instead */
+	if (slave_config->direction != chan->direction) {
+		dev_err(dmac->dma_dev.dev, "Direction not supported by this DMA Channel");
+		return -EINVAL;
+	}
+
+	return 0;
 }
 
 static struct dma_async_tx_descriptor *axi_dmac_prep_dma_cyclic(
@@ -709,6 +736,9 @@ static bool axi_dmac_regmap_rdwr(struct device *dev, unsigned int reg)
 	case AXI_DMAC_REG_STATUS:
 	case AXI_DMAC_REG_CURRENT_SRC_ADDR:
 	case AXI_DMAC_REG_CURRENT_DEST_ADDR:
+	case AXI_DMAC_REG_DBG0:
+	case AXI_DMAC_REG_DBG1:
+	case AXI_DMAC_REG_DBG2:
 	case AXI_DMAC_REG_PARTIAL_XFER_LEN:
 	case AXI_DMAC_REG_PARTIAL_XFER_ID:
 		return true;
@@ -956,6 +986,7 @@ static int axi_dmac_probe(struct platform_device *pdev)
 	dma_dev->device_tx_status = dma_cookie_status;
 	dma_dev->device_issue_pending = axi_dmac_issue_pending;
 	dma_dev->device_prep_slave_sg = axi_dmac_prep_slave_sg;
+	dma_dev->device_config = axi_dmac_device_config;
 	dma_dev->device_prep_dma_cyclic = axi_dmac_prep_dma_cyclic;
 	dma_dev->device_prep_interleaved_dma = axi_dmac_prep_interleaved;
 	dma_dev->device_terminate_all = axi_dmac_terminate_all;
@@ -978,6 +1009,18 @@ static int axi_dmac_probe(struct platform_device *pdev)
 	dma_dev->copy_align = (dmac->chan.address_align_mask + 1);
 
 	axi_dmac_write(dmac, AXI_DMAC_REG_IRQ_MASK, 0x00);
+
+	if (of_dma_is_coherent(pdev->dev.of_node)) {
+		ret = axi_dmac_read(dmac, AXI_DMAC_REG_COHERENCY_DESC);
+
+		if (version < ADI_AXI_PCORE_VER(4, 4, 'a') ||
+		    !AXI_DMAC_DST_COHERENT_GET(ret)) {
+			dev_err(dmac->dma_dev.dev,
+				"Coherent DMA not supported in hardware");
+			ret = -EINVAL;
+			goto err_clk_disable;
+		}
+	}
 
 	ret = dma_async_device_register(dma_dev);
 	if (ret)

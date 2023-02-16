@@ -117,6 +117,23 @@ ssize_t iio_enum_write(struct iio_dev *indio_dev,
 }
 
 /**
+ * IIO_ENUM_AVAILABLE_SHARED() - Initialize enum available extended channel attribute
+ * @_name:	Attribute name ("_available" will be appended to the name)
+ * @_shared:	Whether the attribute is shared between all channels
+ * @_e:		Pointer to an iio_enum struct
+ *
+ * Creates a read only attribute which lists all the available enum items in a
+ * space separated list. This should usually be used together with IIO_ENUM()
+ */
+#define IIO_ENUM_AVAILABLE_SHARED(_name, _shared, _e) \
+{ \
+	.name = (_name "_available"), \
+	.shared = _shared, \
+	.read = iio_enum_available_read, \
+	.private = (uintptr_t)(_e), \
+}
+
+/**
  * struct iio_mount_matrix - iio mounting matrix
  * @rotation: 3 dimensional space rotation matrix defining sensor alignment with
  *            main hardware
@@ -315,6 +332,11 @@ static inline bool iio_channel_has_available(const struct iio_chan_spec *chan,
 s64 iio_get_time_ns(const struct iio_dev *indio_dev);
 unsigned int iio_get_time_res(const struct iio_dev *indio_dev);
 
+enum iio_device_direction {
+	IIO_DEVICE_DIRECTION_IN,
+	IIO_DEVICE_DIRECTION_OUT,
+};
+
 /* Device operating modes */
 #define INDIO_DIRECT_MODE		0x01
 #define INDIO_BUFFER_TRIGGERED		0x02
@@ -362,6 +384,8 @@ struct iio_trigger; /* forward declaration */
  *			and max. For lists, all possible values are enumerated.
  * @write_raw:		function to write a value to the device.
  *			Parameters are the same as for read_raw.
+ * @read_label:		function to request label name for a specified label,
+ *			for better channel identification.
  * @write_raw_get_fmt:	callback function to query the expected
  *			format/precision. If not set by the driver, write_raw
  *			returns IIO_VAL_INT_PLUS_MICRO.
@@ -419,6 +443,10 @@ struct iio_info {
 			 int val,
 			 int val2,
 			 long mask);
+
+	int (*read_label)(struct iio_dev *indio_dev,
+			 struct iio_chan_spec const *chan,
+			 char *label);
 
 	int (*write_raw_get_fmt)(struct iio_dev *indio_dev,
 			 struct iio_chan_spec const *chan,
@@ -525,6 +553,8 @@ struct iio_dev {
 	int				modes;
 	int				currentmode;
 	struct device			dev;
+
+	enum iio_device_direction	direction;
 
 	struct iio_buffer		*buffer;
 	int				scan_bytes;

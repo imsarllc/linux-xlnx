@@ -266,7 +266,8 @@ static struct ad7192_state *ad_sigma_delta_to_ad7192(struct ad_sigma_delta *sd)
 	return container_of(sd, struct ad7192_state, sd);
 }
 
-static int ad7192_set_channel(struct ad_sigma_delta *sd, unsigned int channel)
+static int ad7192_set_channel(struct ad_sigma_delta *sd, unsigned int slot,
+	unsigned int channel)
 {
 	struct ad7192_state *st = ad_sigma_delta_to_ad7192(sd);
 
@@ -293,7 +294,7 @@ static const struct ad_sigma_delta_info ad7192_sigma_delta_info = {
 	.has_registers = true,
 	.addr_shift = 3,
 	.read_mask = BIT(6),
-	.irq_flags = IRQF_TRIGGER_FALLING,
+	.irq_flags = IRQF_TRIGGER_FALLING
 };
 
 static const struct ad_sd_calib_data ad7192_calib_arr[8] = {

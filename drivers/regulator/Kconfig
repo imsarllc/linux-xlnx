@@ -303,6 +303,22 @@ config REGULATOR_DA9063
 	  This driver can also be built as a module. If so, the module
 	  will be called da9063-regulator.
 
+config REGULATOR_DA9121
+	tristate "Dialog Semiconductor DA9121/DA9130/DA9217/DA9122/DA9131/DA9220/DA9132 regulator"
+	depends on I2C
+	select REGMAP_I2C
+	help
+	  Say y here to support for the Dialog Semiconductor DA9121
+	  family of devices.
+
+	  The DA9121/DA9130/DA9217/DA9122/DA9131/DA9220/DA9132 regulators are
+	  controlled through an I2C interface. This driver can also be built
+	  as a module.
+	  DA9121/DA9130 - Single channel dual phase 10A buck converter
+	  DA9217	- Single channel dual phase 6A buck converter
+	  DA9122/DA9131 - Dual channel single phase  5A buck converter
+	  DA9220/DA9132 - Dual channel single phase  3A buck converter
+
 config REGULATOR_DA9210
 	tristate "Dialog Semiconductor DA9210 regulator"
 	depends on I2C
@@ -572,12 +588,12 @@ config REGULATOR_MAX8952
 	  modes ranging from 0.77V to 1.40V by 0.01V steps.
 
 config REGULATOR_MAX8973
-	tristate "Maxim MAX8973 voltage regulator "
+	tristate "Maxim MAX8973A voltage regulator"
 	depends on I2C
 	depends on THERMAL && THERMAL_OF
 	select REGMAP_I2C
 	help
-	  The MAXIM MAX8973 high-efficiency. three phase, DC-DC step-down
+	  The MAXIM MAX8973A high-efficiency. three phase, DC-DC step-down
 	  switching regulator delivers up to 9A of output current. Each
 	  phase operates at a 2MHz fixed frequency with a 120 deg shift
 	  from the adjacent phase, allowing the use of small magnetic component.

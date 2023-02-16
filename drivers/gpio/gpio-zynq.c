@@ -991,6 +991,10 @@ static int zynq_gpio_probe(struct platform_device *pdev)
 	device_init_wakeup(&pdev->dev, 1);
 	pm_runtime_put(&pdev->dev);
 
+	/* XXX: this is a workaround to force the GPIO controller clock to stay
+	 * enabled, otherwise register writes are ignored. */
+	pm_runtime_get_sync(chip->parent);
+
 	return 0;
 
 err_pm_put:
@@ -1033,22 +1037,7 @@ static struct platform_driver zynq_gpio_driver = {
 	.remove = zynq_gpio_remove,
 };
 
-/**
- * zynq_gpio_init - Initial driver registration call
- *
- * Return: value from platform_driver_register
- */
-static int __init zynq_gpio_init(void)
-{
-	return platform_driver_register(&zynq_gpio_driver);
-}
-postcore_initcall(zynq_gpio_init);
-
-static void __exit zynq_gpio_exit(void)
-{
-	platform_driver_unregister(&zynq_gpio_driver);
-}
-module_exit(zynq_gpio_exit);
+module_platform_driver(zynq_gpio_driver);
 
 MODULE_AUTHOR("Xilinx Inc.");
 MODULE_DESCRIPTION("Zynq GPIO driver");

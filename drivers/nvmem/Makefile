@@ -7,6 +7,8 @@ obj-$(CONFIG_NVMEM)		+= nvmem_core.o
 nvmem_core-y			:= core.o
 
 # Devices
+obj-$(CONFIG_NVMEM_AXI_SYSID)	+= nvmem-axi-sysid.o
+nvmem-axi-sysid-y		:= adi_axi_sysid.o
 obj-$(CONFIG_NVMEM_BCM_OCOTP)	+= nvmem-bcm-ocotp.o
 nvmem-bcm-ocotp-y		:= bcm-ocotp.o
 obj-$(CONFIG_NVMEM_IMX_IIM)	+= nvmem-imx-iim.o
@@ -53,5 +55,7 @@ obj-$(CONFIG_SC27XX_EFUSE)	+= nvmem-sc27xx-efuse.o
 nvmem-sc27xx-efuse-y		:= sc27xx-efuse.o
 obj-$(CONFIG_NVMEM_ZYNQMP)	+= nvmem_zynqmp_nvmem.o
 nvmem_zynqmp_nvmem-y		:= zynqmp_nvmem.o
+obj-$(CONFIG_XLNX_SEC_CFG)	+= nvmem_xlnx_secure_config.o
+nvmem_xlnx_secure_config-y	:= xlnx_secure_config.o
 obj-$(CONFIG_SPRD_EFUSE)	+= nvmem_sprd_efuse.o
 nvmem_sprd_efuse-y		:= sprd-efuse.o

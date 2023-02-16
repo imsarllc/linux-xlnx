@@ -33,7 +33,10 @@
 #include <linux/usb/otg.h>
 #include <linux/usb/chipidea.h>
 #include <linux/usb/of.h>
+#include <linux/usb/ulpi.h>
 #include <linux/of.h>
+#include <linux/of_gpio.h>
+#include <linux/phy.h>
 #include <linux/regulator/consumer.h>
 #include <linux/usb/ehci_def.h>
 
@@ -319,7 +322,8 @@ static int _ci_usb_phy_init(struct ci_hdrc *ci)
 
 		ret = phy_power_on(ci->phy);
 		if (ret) {
-			phy_exit(ci->phy);
+			if (phy_exit(ci->phy) < 0)
+				dev_dbg(ci->dev, "phy exit failed\r\n");
 			return ret;
 		}
 	} else {
@@ -336,12 +340,20 @@ static int _ci_usb_phy_init(struct ci_hdrc *ci)
  */
 static void ci_usb_phy_exit(struct ci_hdrc *ci)
 {
+	int ret;
+
 	if (ci->platdata->flags & CI_HDRC_OVERRIDE_PHY_CONTROL)
 		return;
 
 	if (ci->phy) {
-		phy_power_off(ci->phy);
-		phy_exit(ci->phy);
+		ret = phy_power_off(ci->phy);
+		if (ret < 0)
+			dev_dbg(ci->dev, "phy poweroff failed\r\n");
+
+		ret = phy_exit(ci->phy);
+		if (ret < 0)
+			dev_dbg(ci->dev, "phy exit failed\r\n");
+
 	} else {
 		usb_phy_shutdown(ci->usb_phy);
 	}
@@ -704,13 +716,16 @@ static int ci_get_platdata(struct device *dev,
 	if (usb_get_maximum_speed(dev) == USB_SPEED_FULL)
 		platdata->flags |= CI_HDRC_FORCE_FULLSPEED;
 
-	of_property_read_u32(dev->of_node, "phy-clkgate-delay-us",
-				     &platdata->phy_clkgate_delay_us);
+	if (of_property_read_u32(dev->of_node, "phy-clkgate-delay-us",
+				 &platdata->phy_clkgate_delay_us))
+		dev_dbg(dev, "Missing phy-clkgate-delay-us property\n");
 
 	platdata->itc_setting = 1;
 
-	of_property_read_u32(dev->of_node, "itc-setting",
-					&platdata->itc_setting);
+	if (of_property_read_u32(dev->of_node, "itc-setting",
+				 &platdata->itc_setting))
+		dev_dbg(dev, "Missing itc-setting property\n");
+
 
 	ret = of_property_read_u32(dev->of_node, "ahb-burst-config",
 				&platdata->ahb_burst_config);
@@ -938,6 +953,46 @@ static void ci_get_otg_capable(struct ci_hdrc *ci)
 	}
 }
 
+#ifdef CONFIG_USB_ULPI
+
+static int ci_hdrc_create_ulpi_phy(struct device *dev, struct ci_hdrc *ci)
+{
+	struct usb_phy *ulpi;
+	int reset_gpio;
+	int ret;
+
+	reset_gpio = of_get_named_gpio(dev->parent->of_node, "xlnx,phy-reset-gpio", 0);
+	if (gpio_is_valid(reset_gpio)) {
+		ret = devm_gpio_request_one(dev, reset_gpio,
+				GPIOF_INIT_LOW, "ulpi resetb");
+		if (ret) {
+			dev_err(dev, "Failed to request ULPI reset gpio: %d\n", ret);
+			return ret;
+		}
+		msleep(5);
+		gpio_set_value_cansleep(reset_gpio, 1);
+		msleep(1);
+	}
+
+	ulpi = otg_ulpi_create(&ulpi_viewport_access_ops,
+		ULPI_OTG_DRVVBUS | ULPI_OTG_DRVVBUS_EXT);
+	if (ulpi) {
+		ulpi->io_priv = ci->hw_bank.abs + 0x170;
+		ci->usb_phy = ulpi;
+	}
+
+	return 0;
+}
+
+#else
+
+static int ci_hdrc_create_ulpi_phy(struct device *dev, struct ci_hdrc *ci)
+{
+	return 0;
+}
+
+#endif
+
 static ssize_t role_show(struct device *dev, struct device_attribute *attr,
 			  char *buf)
 {
@@ -1073,8 +1128,14 @@ static int ci_hdrc_probe(struct platform_device *pdev)
 
 		/* No USB PHY was found in the end */
 		if (!ci->phy && !ci->usb_phy) {
-			ret = -ENXIO;
-			goto ulpi_exit;
+			if (ci->platdata->phy_mode == USBPHY_INTERFACE_MODE_ULPI) {
+				ret = ci_hdrc_create_ulpi_phy(dev, ci);
+				if (ret)
+					return ret;
+			} else {
+				ret = -ENXIO;
+				goto ulpi_exit;
+			}
 		}
 	}
 
