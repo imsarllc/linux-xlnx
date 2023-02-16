@@ -59,6 +59,7 @@ EXPORT_SYMBOL(memstart_addr);
  * In such case, ZONE_DMA32 covers the rest of the 32-bit addressable memory,
  * otherwise it is empty.
  */
+phys_addr_t arm64_dma_phys_limit __ro_after_init;
 phys_addr_t arm64_dma32_phys_limit __ro_after_init;
 
 #ifdef CONFIG_KEXEC_CORE
@@ -85,7 +86,7 @@ static void __init reserve_crashkernel(void)
 	if (crash_base == 0) {
 		/* Current arm64 boot protocol requires 2MB alignment */
 		crash_base = memblock_find_in_range(0, arm64_dma_phys_limit,
-				crash_size, SZ_2M);
+						    crash_size, SZ_2M);
 		if (crash_base == 0) {
 			pr_warn("cannot allocate crashkernel (size:0x%llx)\n",
 				crash_size);
@@ -124,7 +125,8 @@ static void __init reserve_crashkernel(void)
 
 #ifdef CONFIG_CRASH_DUMP
 static int __init early_init_dt_scan_elfcorehdr(unsigned long node,
-		const char *uname, int depth, void *data)
+						const char *uname, int depth,
+						void *data)
 {
 	const __be32 *reg;
 	int len;
@@ -193,7 +195,7 @@ static phys_addr_t __init max_zone_phys(unsigned int zone_bits)
 
 static void __init zone_sizes_init(unsigned long min, unsigned long max)
 {
-	unsigned long max_zone_pfns[MAX_NR_ZONES]  = {0};
+	unsigned long max_zone_pfns[MAX_NR_ZONES] = { 0 };
 	unsigned int __maybe_unused acpi_zone_dma_bits;
 	unsigned int __maybe_unused dt_zone_dma_bits;
 	phys_addr_t __maybe_unused dma32_phys_limit = max_zone_phys(32);
@@ -265,7 +267,8 @@ static int __init early_mem(char *p)
 early_param("mem", early_mem);
 
 static int __init early_init_dt_scan_usablemem(unsigned long node,
-		const char *uname, int depth, void *data)
+					       const char *uname, int depth,
+					       void *data)
 {
 	struct memblock_region *usablemem = data;
 	const __be32 *reg;
@@ -309,8 +312,8 @@ void __init arm64_memblock_init(void)
 	/*
 	 * Select a suitable value for the base of physical memory.
 	 */
-	memstart_addr = round_down(memblock_start_of_DRAM(),
-				   ARM64_MEMSTART_ALIGN);
+	memstart_addr =
+		round_down(memblock_start_of_DRAM(), ARM64_MEMSTART_ALIGN);
 
 	/*
 	 * Remove the memory that we will not be able to cover with the
@@ -318,11 +321,13 @@ void __init arm64_memblock_init(void)
 	 * high in memory.
 	 */
 	memblock_remove(max_t(u64, memstart_addr + linear_region_size,
-			__pa_symbol(_end)), ULLONG_MAX);
+			      __pa_symbol(_end)),
+			ULLONG_MAX);
 	if (memstart_addr + linear_region_size < memblock_end_of_DRAM()) {
 		/* ensure that memstart_addr remains sufficiently aligned */
-		memstart_addr = round_up(memblock_end_of_DRAM() - linear_region_size,
-					 ARM64_MEMSTART_ALIGN);
+		memstart_addr =
+			round_up(memblock_end_of_DRAM() - linear_region_size,
+				 ARM64_MEMSTART_ALIGN);
 		memblock_remove(0, memstart_addr);
 	}
 
@@ -353,7 +358,8 @@ void __init arm64_memblock_init(void)
 		 * Otherwise, this is a no-op
 		 */
 		u64 base = phys_initrd_start & PAGE_MASK;
-		u64 size = PAGE_ALIGN(phys_initrd_start + phys_initrd_size) - base;
+		u64 size =
+			PAGE_ALIGN(phys_initrd_start + phys_initrd_size) - base;
 
 		/*
 		 * We can only add back the initrd memory if we don't end up
@@ -364,9 +370,9 @@ void __init arm64_memblock_init(void)
 		 * always access both.
 		 */
 		if (WARN(base < memblock_start_of_DRAM() ||
-			 base + size > memblock_start_of_DRAM() +
-				       linear_region_size,
-			"initrd not fully accessible via the linear mapping -- please check your bootloader ...\n")) {
+				 base + size > memblock_start_of_DRAM() +
+						       linear_region_size,
+			 "initrd not fully accessible via the linear mapping -- please check your bootloader ...\n")) {
 			phys_initrd_size = 0;
 		} else {
 			memblock_remove(base, size); /* clear MEMBLOCK_ flags */
@@ -491,7 +497,7 @@ static void __init free_unused_memmap(void)
 	unsigned long start, end, prev_end = 0;
 	int i;
 
-	for_each_mem_pfn_range(i, MAX_NUMNODES, &start, &end, NULL) {
+	for_each_mem_pfn_range (i, MAX_NUMNODES, &start, &end, NULL) {
 #ifdef CONFIG_SPARSEMEM
 		/*
 		 * Take care not to free memmap entries that don't exist due
@@ -519,7 +525,7 @@ static void __init free_unused_memmap(void)
 		free_memmap(prev_end, ALIGN(prev_end, PAGES_PER_SECTION));
 #endif
 }
-#endif	/* !CONFIG_SPARSEMEM_VMEMMAP */
+#endif /* !CONFIG_SPARSEMEM_VMEMMAP */
 
 /*
  * mem_init() marks the free areas in the mem_map and tells us how much memory
@@ -564,8 +570,7 @@ void __init mem_init(void)
 
 void free_initmem(void)
 {
-	free_reserved_area(lm_alias(__init_begin),
-			   lm_alias(__init_end),
+	free_reserved_area(lm_alias(__init_begin), lm_alias(__init_end),
 			   POISON_FREE_INITMEM, "unused kernel");
 	/*
 	 * Unmap the __init region but leave the VM area in place. This
