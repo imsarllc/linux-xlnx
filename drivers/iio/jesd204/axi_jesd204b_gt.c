@@ -639,7 +639,7 @@ static unsigned long jesd204b_gt_clk_recalc_rate(struct clk_hw *hw,
 			return ret;
 
 		lane_rate = xilinx_xcvr_cpll_calc_lane_rate(&st->xcvr, parent_rate,
-			&cpll_conf, out_div); 
+			&cpll_conf, out_div);
 
 		dev_dbg(st->dev, "%s  CPLL %lu   %lu\n", __func__,
 			gt_link->lane_rate, lane_rate);
@@ -1016,7 +1016,7 @@ static int jesd204b_gt_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, st);
 
 	if (of_id && of_id->data)
-		st->vers_id = (unsigned) of_id->data;
+		st->vers_id = (long) of_id->data;
 
 	for_each_lane_of_all_links(st, tmp, gt_link, lane) {
 		jesd204b_gt_write(st, JESD204B_GT_REG_RSTN_1(lane) + gt_link->tx_offset, 0); /* resets (drp, pll) */

@@ -247,7 +247,7 @@ static int jesd204b_probe(struct platform_device *pdev)
 	st->clk = clk;
 
 	if (of_id && of_id->data)
-		st->vers_id = (unsigned) of_id->data;
+		st->vers_id = (long) of_id->data;
 
 	ret = of_property_read_u32(pdev->dev.of_node,
 				   "xlnx,frames-per-multiframe", &frmcnt);
