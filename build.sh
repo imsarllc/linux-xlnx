@@ -10,4 +10,4 @@ fi
 make $MAKE_OPTS xilinx_zynq_defconfig
 make $MAKE_OPTS uImage UIMAGE_LOADADDR=0x8000
 make $MAKE_OPTS modules
-make $MAKE_OPTS modules_install INSTALL_MOD_PATH=.
+make $MAKE_OPTS modules_install INSTALL_MOD_PATH=$PWD/modules_out
