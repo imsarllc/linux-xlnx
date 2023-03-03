@@ -2,7 +2,11 @@
 export ARCH=arm
 export CROSS_COMPILE=arm-linux-gnueabihf-
 MAKE_OPTS="-j$(nproc --ignore 2) O=kernel_out"
-make mrproper
+
+if [[ "$@" =~ "clean" ]]; then
+    make mrproper
+fi
+
 make $MAKE_OPTS xilinx_zynq_defconfig
 make $MAKE_OPTS uImage UIMAGE_LOADADDR=0x8000
 make $MAKE_OPTS modules
