@@ -1329,21 +1329,21 @@ static int sc16is7xx_probe(struct device *dev,
 				s->p[u].irda_mode = true;
 	}
 
-	/*
-	 * Setup interrupt. We first try to acquire the IRQ line as level IRQ.
-	 * If that succeeds, we can allow sharing the interrupt as well.
-	 * In case the interrupt controller doesn't support that, we fall
-	 * back to a non-shared falling-edge trigger.
-	 */
-	ret = devm_request_threaded_irq(dev, irq, NULL, sc16is7xx_irq,
-					IRQF_TRIGGER_LOW | IRQF_SHARED |
-					IRQF_ONESHOT,
-					dev_name(dev), s);
-	if (!ret)
-		return 0;
+	// /*
+	//  * Setup interrupt. We first try to acquire the IRQ line as level IRQ.
+	//  * If that succeeds, we can allow sharing the interrupt as well.
+	//  * In case the interrupt controller doesn't support that, we fall
+	//  * back to a non-shared falling-edge trigger.
+	//  */
+	// ret = devm_request_threaded_irq(dev, irq, NULL, sc16is7xx_irq,
+	// 				IRQF_TRIGGER_LOW | IRQF_SHARED |
+	// 				IRQF_ONESHOT,
+	// 				dev_name(dev), s);
+	// if (!ret)
+	// 	return 0;
 
 	ret = devm_request_threaded_irq(dev, irq, NULL, sc16is7xx_irq,
-					IRQF_TRIGGER_FALLING | IRQF_ONESHOT,
+					IRQF_TRIGGER_RISING | IRQF_ONESHOT,
 					dev_name(dev), s);
 	if (!ret)
 		return 0;
