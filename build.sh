@@ -1,18 +1,17 @@
 #!/usr/bin/env bash
-export ARCH=arm
-export CROSS_COMPILE=arm-linux-gnueabihf-
+set -e
+
+. env.sh
+
 MAKE_OPTS="-j$(nproc --ignore 2) O=kernel_out"
 
-if [[ "$@" =~ "clean" ]]; then
-    make mrproper
+if [[ -n "$1" ]]; then
+    make $MAKE_OPTS $1
+else
+    make $MAKE_OPTS xilinx_zynq_defconfig
+    make $MAKE_OPTS uImage UIMAGE_LOADADDR=0x8000
+    make $MAKE_OPTS modules
+    make $MAKE_OPTS modules_install INSTALL_MOD_PATH=$PWD/modules_out
 fi
 
-if [[ "$@" =~ "config" ]]; then
-    make menuconfig
-    exit $?
-fi
 
-make $MAKE_OPTS xilinx_zynq_defconfig
-make $MAKE_OPTS uImage UIMAGE_LOADADDR=0x8000
-make $MAKE_OPTS modules
-make $MAKE_OPTS modules_install INSTALL_MOD_PATH=$PWD/modules_out
