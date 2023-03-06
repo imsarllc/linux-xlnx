@@ -7,6 +7,11 @@ if [[ "$@" =~ "clean" ]]; then
     make mrproper
 fi
 
+if [[ "$@" =~ "config" ]]; then
+    make menuconfig
+    exit $?
+fi
+
 make $MAKE_OPTS xilinx_zynq_defconfig
 make $MAKE_OPTS uImage UIMAGE_LOADADDR=0x8000
 make $MAKE_OPTS modules
