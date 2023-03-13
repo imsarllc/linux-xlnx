@@ -1329,6 +1329,12 @@ static int sc16is7xx_probe(struct device *dev,
 				s->p[u].irda_mode = true;
 	}
 
+	////////////////////////
+	// Note on IMSAR modifications:
+	// - Disable (comment out) sharing interrupt because we have a dedicated interrupt line
+	// - Switch to RISING edge trigger instead of FALLING b/c the GIC does not support falling edge
+	//   (we have an inverter on the IRQ line)
+
 	// /*
 	//  * Setup interrupt. We first try to acquire the IRQ line as level IRQ.
 	//  * If that succeeds, we can allow sharing the interrupt as well.
@@ -1345,6 +1351,9 @@ static int sc16is7xx_probe(struct device *dev,
 	ret = devm_request_threaded_irq(dev, irq, NULL, sc16is7xx_irq,
 					IRQF_TRIGGER_RISING | IRQF_ONESHOT,
 					dev_name(dev), s);
+
+	// End IMSAR modifications
+
 	if (!ret)
 		return 0;
 
