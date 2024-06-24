@@ -127,7 +127,7 @@ static int ad_sd_read_reg_raw(struct ad_sigma_delta *sigma_delta,
 	int ret;
 
 	ad_sd_prepare_read_reg(sigma_delta, &m, t, reg, size,
-		sigma_delta->data, val, sigma_delta->keep_cs_asserted);
+		sigma_delta->tx_buf, val, sigma_delta->keep_cs_asserted);
 
 	if (sigma_delta->bus_locked)
 		ret = spi_sync_locked(sigma_delta->spi, &m);
@@ -482,7 +482,6 @@ static irqreturn_t ad_sd_trigger_handler(int irq, void *p)
 	struct iio_poll_func *pf = p;
 	struct iio_dev *indio_dev = pf->indio_dev;
 	struct ad_sigma_delta *sigma_delta = iio_device_get_drvdata(indio_dev);
-	uint8_t *data = sigma_delta->rx_buf;
 	unsigned int reg_size;
 	int ret;
 
