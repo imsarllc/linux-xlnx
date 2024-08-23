@@ -18,14 +18,13 @@
 #include <linux/module.h>
 #include <linux/property.h>
 #include <linux/regmap.h>
-#include <linux/sched.h>
 #include <linux/serial_core.h>
 #include <linux/serial.h>
 #include <linux/tty.h>
 #include <linux/tty_flip.h>
 #include <linux/spi/spi.h>
 #include <linux/uaccess.h>
-#include <linux/units.h>
+#include <uapi/linux/sched/types.h>
 
 #define SC16IS7XX_NAME			"sc16is7xx"
 #define SC16IS7XX_MAX_DEVS		8
@@ -376,7 +375,9 @@ static void sc16is7xx_fifo_read(struct uart_port *port, unsigned int rxlen)
 	const u8 line = sc16is7xx_line(port);
 	u8 addr = (SC16IS7XX_RHR_REG << SC16IS7XX_REG_SHIFT) | line;
 
-	regmap_noinc_read(s->regmap, addr, s->buf, rxlen);
+	regcache_cache_bypass(s->regmap, true);
+	regmap_raw_read(s->regmap, addr, s->buf, rxlen);
+	regcache_cache_bypass(s->regmap, false);
 }
 
 static void sc16is7xx_fifo_write(struct uart_port *port, u8 to_send)
@@ -392,7 +393,9 @@ static void sc16is7xx_fifo_write(struct uart_port *port, u8 to_send)
 	if (unlikely(!to_send))
 		return;
 
-	regmap_noinc_write(s->regmap, addr, s->buf, to_send);
+	regcache_cache_bypass(s->regmap, true);
+	regmap_raw_write(s->regmap, addr, s->buf, to_send);
+	regcache_cache_bypass(s->regmap, false);
 }
 
 static void sc16is7xx_port_update(struct uart_port *port, u8 reg,
@@ -485,33 +488,16 @@ static bool sc16is7xx_regmap_precious(struct device *dev, unsigned int reg)
 	return false;
 }
 
-static bool sc16is7xx_regmap_noinc(struct device *dev, unsigned int reg)
-{
-	return reg == SC16IS7XX_RHR_REG;
-}
-
-/*
- * Configure programmable baud rate generator (divisor) according to the
- * desired baud rate.
- *
- * From the datasheet, the divisor is computed according to:
- *
- *              XTAL1 input frequency
- *             -----------------------
- *                    prescaler
- * divisor = ---------------------------
- *            baud-rate x sampling-rate
- */
 static int sc16is7xx_set_baud(struct uart_port *port, int baud)
 {
 	struct sc16is7xx_port *s = dev_get_drvdata(port->dev);
 	u8 lcr;
-	unsigned int prescaler = 1;
+	u8 prescaler = 0;
 	unsigned long clk = port->uartclk, div = clk / 16 / baud;
 
-	if (div >= BIT(16)) {
-		prescaler = 4;
-		div /= prescaler;
+	if (div > 0xffff) {
+		prescaler = SC16IS7XX_MCR_CLKSEL_BIT;
+		div /= 4;
 	}
 
 	/* In an amazing feat of design, the Enhanced Features Register shares
@@ -546,10 +532,9 @@ static int sc16is7xx_set_baud(struct uart_port *port, int baud)
 
 	mutex_unlock(&s->efr_lock);
 
-	/* If bit MCR_CLKSEL is set, the divide by 4 prescaler is activated. */
 	sc16is7xx_port_update(port, SC16IS7XX_MCR_REG,
 			      SC16IS7XX_MCR_CLKSEL_BIT,
-			      prescaler == 1 ? 0 : SC16IS7XX_MCR_CLKSEL_BIT);
+			      prescaler);
 
 	/* Open the LCR divisors for configuration */
 	sc16is7xx_port_write(port, SC16IS7XX_LCR_REG,
@@ -564,7 +549,7 @@ static int sc16is7xx_set_baud(struct uart_port *port, int baud)
 	/* Put LCR back to the normal mode */
 	sc16is7xx_port_write(port, SC16IS7XX_LCR_REG, lcr);
 
-	return DIV_ROUND_CLOSEST((clk / prescaler) / 16, div);
+	return DIV_ROUND_CLOSEST(clk / 16, div);
 }
 
 static void sc16is7xx_handle_rx(struct uart_port *port, unsigned int rxlen,
@@ -709,18 +694,6 @@ static bool sc16is7xx_port_irq(struct sc16is7xx_port *s, int portno)
 		case SC16IS7XX_IIR_RTOI_SRC:
 		case SC16IS7XX_IIR_XOFFI_SRC:
 			rxlen = sc16is7xx_port_read(port, SC16IS7XX_RXLVL_REG);
-
-			/*
-			 * There is a silicon bug that makes the chip report a
-			 * time-out interrupt but no data in the FIFO. This is
-			 * described in errata section 18.1.4.
-			 *
-			 * When this happens, read one byte from the FIFO to
-			 * clear the interrupt.
-			 */
-			if (iir == SC16IS7XX_IIR_RTOI_SRC && !rxlen)
-				rxlen = 1;
-
 			if (rxlen)
 				sc16is7xx_handle_rx(port, rxlen, iir);
 			break;
@@ -761,15 +734,12 @@ static irqreturn_t sc16is7xx_irq(int irq, void *dev_id)
 static void sc16is7xx_tx_proc(struct kthread_work *ws)
 {
 	struct uart_port *port = &(to_sc16is7xx_one(ws, tx_work)->port);
-	struct sc16is7xx_port *s = dev_get_drvdata(port->dev);
 
 	if ((port->rs485.flags & SER_RS485_ENABLED) &&
 	    (port->rs485.delay_rts_before_send > 0))
 		msleep(port->rs485.delay_rts_before_send);
 
-	mutex_lock(&s->efr_lock);
 	sc16is7xx_handle_tx(port);
-	mutex_unlock(&s->efr_lock);
 }
 
 static void sc16is7xx_reconf_rs485(struct uart_port *port)
@@ -1197,18 +1167,9 @@ static int sc16is7xx_gpio_direction_output(struct gpio_chip *chip,
 		state |= BIT(offset);
 	else
 		state &= ~BIT(offset);
-
-	/*
-	 * If we write IOSTATE first, and then IODIR, the output value is not
-	 * transferred to the corresponding I/O pin.
-	 * The datasheet states that each register bit will be transferred to
-	 * the corresponding I/O pin programmed as output when writing to
-	 * IOSTATE. Therefore, configure direction first with IODIR, and then
-	 * set value after with IOSTATE.
-	 */
+	sc16is7xx_port_write(port, SC16IS7XX_IOSTATE_REG, state);
 	sc16is7xx_port_update(port, SC16IS7XX_IODIR_REG, BIT(offset),
 			      BIT(offset));
-	sc16is7xx_port_write(port, SC16IS7XX_IOSTATE_REG, state);
 
 	return 0;
 }
@@ -1281,6 +1242,25 @@ static int sc16is7xx_probe(struct device *dev,
 	}
 	sched_set_fifo(s->kworker_task);
 
+#ifdef CONFIG_GPIOLIB
+	if (devtype->nr_gpio) {
+		/* Setup GPIO cotroller */
+		s->gpio.owner		 = THIS_MODULE;
+		s->gpio.parent		 = dev;
+		s->gpio.label		 = dev_name(dev);
+		s->gpio.direction_input	 = sc16is7xx_gpio_direction_input;
+		s->gpio.get		 = sc16is7xx_gpio_get;
+		s->gpio.direction_output = sc16is7xx_gpio_direction_output;
+		s->gpio.set		 = sc16is7xx_gpio_set;
+		s->gpio.base		 = -1;
+		s->gpio.ngpio		 = devtype->nr_gpio;
+		s->gpio.can_sleep	 = 1;
+		ret = gpiochip_add_data(&s->gpio, s);
+		if (ret)
+			goto out_thread;
+	}
+#endif
+
 	/* reset device, purging any pending irq / data */
 	regmap_write(s->regmap, SC16IS7XX_IOCONTROL_REG << SC16IS7XX_REG_SHIFT,
 			SC16IS7XX_IOCONTROL_SRESET_BIT);
@@ -1294,12 +1274,6 @@ static int sc16is7xx_probe(struct device *dev,
 		s->p[i].port.fifosize	= SC16IS7XX_FIFO_SIZE;
 		s->p[i].port.flags	= UPF_FIXED_TYPE | UPF_LOW_LATENCY;
 		s->p[i].port.iobase	= i;
-		/*
-		 * Use all ones as membase to make sure uart_configure_port() in
-		 * serial_core.c does not abort for SPI/I2C devices where the
-		 * membase address is not applicable.
-		 */
-		s->p[i].port.membase	= (void __iomem *)~0;
 		s->p[i].port.iotype	= UPIO_PORT;
 		s->p[i].port.uartclk	= freq;
 		s->p[i].port.rs485_config = sc16is7xx_config_rs485;
@@ -1352,50 +1326,30 @@ static int sc16is7xx_probe(struct device *dev,
 				s->p[u].irda_mode = true;
 	}
 
-#ifdef CONFIG_GPIOLIB
-	if (devtype->nr_gpio) {
-		/* Setup GPIO cotroller */
-		s->gpio.owner		 = THIS_MODULE;
-		s->gpio.parent		 = dev;
-		s->gpio.label		 = dev_name(dev);
-		s->gpio.direction_input	 = sc16is7xx_gpio_direction_input;
-		s->gpio.get		 = sc16is7xx_gpio_get;
-		s->gpio.direction_output = sc16is7xx_gpio_direction_output;
-		s->gpio.set		 = sc16is7xx_gpio_set;
-		s->gpio.base		 = -1;
-		s->gpio.ngpio		 = devtype->nr_gpio;
-		s->gpio.can_sleep	 = 1;
-		ret = gpiochip_add_data(&s->gpio, s);
-		if (ret)
-			goto out_thread;
-	}
-#endif
+	////////////////////////
+	// Note on IMSAR modifications:
+	// - Disable (comment out) sharing interrupt because we have a dedicated interrupt line
+	// - Switch to RISING edge trigger instead of FALLING b/c the GIC does not support falling edge
+	//   (we have an inverter on the IRQ line)
 
-	/*
-	 * Setup interrupt. We first try to acquire the IRQ line as level IRQ.
-	 * If that succeeds, we can allow sharing the interrupt as well.
-	 * In case the interrupt controller doesn't support that, we fall
-	 * back to a non-shared falling-edge trigger.
-	 */
+	// /*
+	//  * Setup interrupt. We first try to acquire the IRQ line as level IRQ.
+	//  * If that succeeds, we can allow sharing the interrupt as well.
+	//  * In case the interrupt controller doesn't support that, we fall
+	//  * back to a non-shared falling-edge trigger.
+	//  */
+	// ret = devm_request_threaded_irq(dev, irq, NULL, sc16is7xx_irq,
+	// 				IRQF_TRIGGER_LOW | IRQF_SHARED |
+	// 				IRQF_ONESHOT,
+	// 				dev_name(dev), s);
+	// if (!ret)
+	// 	return 0;
+
 	ret = devm_request_threaded_irq(dev, irq, NULL, sc16is7xx_irq,
-					IRQF_TRIGGER_LOW | IRQF_SHARED |
-					IRQF_ONESHOT,
+					IRQF_TRIGGER_RISING | IRQF_ONESHOT,
 					dev_name(dev), s);
 	if (!ret)
 		return 0;
-
-	ret = devm_request_threaded_irq(dev, irq, NULL, sc16is7xx_irq,
-					IRQF_TRIGGER_FALLING | IRQF_ONESHOT,
-					dev_name(dev), s);
-	if (!ret)
-		return 0;
-
-#ifdef CONFIG_GPIOLIB
-	if (devtype->nr_gpio)
-		gpiochip_remove(&s->gpio);
-
-out_thread:
-#endif
 
 out_ports:
 	for (i--; i >= 0; i--) {
@@ -1403,6 +1357,12 @@ out_ports:
 		clear_bit(s->p[i].port.line, &sc16is7xx_lines);
 	}
 
+#ifdef CONFIG_GPIOLIB
+	if (devtype->nr_gpio)
+		gpiochip_remove(&s->gpio);
+
+out_thread:
+#endif
 	kthread_stop(s->kworker_task);
 
 out_clk:
@@ -1453,8 +1413,6 @@ static struct regmap_config regcfg = {
 	.cache_type = REGCACHE_RBTREE,
 	.volatile_reg = sc16is7xx_regmap_volatile,
 	.precious_reg = sc16is7xx_regmap_precious,
-	.writeable_noinc_reg = sc16is7xx_regmap_noinc,
-	.readable_noinc_reg = sc16is7xx_regmap_noinc,
 };
 
 #ifdef CONFIG_SERIAL_SC16IS7XX_SPI
@@ -1466,12 +1424,9 @@ static int sc16is7xx_spi_probe(struct spi_device *spi)
 
 	/* Setup SPI bus */
 	spi->bits_per_word	= 8;
-	/* For all variants, only mode 0 is supported */
-	if ((spi->mode & SPI_MODE_X_MASK) != SPI_MODE_0)
-		return dev_err_probe(&spi->dev, -EINVAL, "Unsupported SPI mode\n");
-
+	/* only supports mode 0 on SC16IS762 */
 	spi->mode		= spi->mode ? : SPI_MODE_0;
-	spi->max_speed_hz	= spi->max_speed_hz ? : 4 * HZ_PER_MHZ;
+	spi->max_speed_hz	= spi->max_speed_hz ? : 15000000;
 	ret = spi_setup(spi);
 	if (ret)
 		return ret;
