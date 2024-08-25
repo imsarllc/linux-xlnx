@@ -117,6 +117,9 @@
 /* Maximum number of chip selects */
 #define ZYNQ_QSPI_MAX_NUM_CS		2
 
+/* Maximum address width */
+#define ZYNQ_QSPI_MAX_ADDR_WIDTH	3
+
 /**
  * struct zynq_qspi - Defines qspi driver instance
  * @dev:		Pointer to the this device's information
@@ -227,13 +230,6 @@ static bool zynq_qspi_supports_op(struct spi_mem *mem,
 {
 	if (!spi_mem_default_supports_op(mem, op))
 		return false;
-
-	/*
-	 * The number of address bytes should be equal to or less than 3 bytes.
-	 */
-	if (op->addr.nbytes > 3)
-		return false;
-
 	return true;
 }
 
@@ -528,10 +524,14 @@ static int zynq_qspi_exec_mem_op(struct spi_mem *mem,
 	struct zynq_qspi *xqspi = spi_controller_get_devdata(mem->spi->master);
 	int err = 0, i;
 	u8 *tmpbuf;
+	u8 opaddr[ZYNQ_QSPI_MAX_ADDR_WIDTH];
 
 	dev_dbg(xqspi->dev, "cmd:%#x mode:%d.%d.%d.%d\n",
 		op->cmd.opcode, op->cmd.buswidth, op->addr.buswidth,
 		op->dummy.buswidth, op->data.buswidth);
+
+	if (op->addr.nbytes > ZYNQ_QSPI_MAX_ADDR_WIDTH)
+		return -EINVAL;
 
 	zynq_qspi_chipselect(mem->spi, true);
 	zynq_qspi_config_op(xqspi, mem->spi);
@@ -551,6 +551,7 @@ static int zynq_qspi_exec_mem_op(struct spi_mem *mem,
 	}
 
 	if (op->addr.nbytes) {
+		xqspi->txbuf = opaddr;
 		for (i = 0; i < op->addr.nbytes; i++) {
 			xqspi->txbuf[i] = op->addr.val >>
 					(8 * (op->addr.nbytes - i - 1));
@@ -703,7 +704,7 @@ static int zynq_qspi_probe(struct platform_device *pdev)
 		ctlr->num_chipselect = num_cs;
 	}
 
-	ctlr->mode_bits =  SPI_RX_DUAL | SPI_RX_QUAD |
+	ctlr->mode_bits = SPI_CPOL | SPI_CPHA | SPI_RX_DUAL | SPI_RX_QUAD |
 			    SPI_TX_DUAL | SPI_TX_QUAD;
 	ctlr->mem_ops = &zynq_qspi_mem_ops;
 	ctlr->setup = zynq_qspi_setup_op;

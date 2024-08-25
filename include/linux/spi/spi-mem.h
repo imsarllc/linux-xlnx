@@ -195,6 +195,8 @@ struct spi_mem {
 	struct spi_device *spi;
 	void *drvpriv;
 	const char *name;
+	struct delayed_work	complete_work;
+	struct completion	request_completion;
 };
 
 /**

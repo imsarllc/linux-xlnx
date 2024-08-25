@@ -1380,7 +1380,17 @@ int spi_nor_parse_sfdp(struct spi_nor *nor)
 			break;
 
 		case SFDP_4BAIT_ID:
-			err = spi_nor_parse_4bait(nor, param_header);
+			{
+#ifdef CONFIG_OF
+				struct device_node *np = spi_nor_get_flash_node(nor);
+				struct device_node *np_spi = of_get_next_parent(np);
+
+				if (of_property_match_string(np_spi, "compatible", "xlnx,zynq-qspi-1.0") < 0)
+					err = spi_nor_parse_4bait(nor, param_header);
+#else
+				err = spi_nor_parse_4bait(nor, param_header);
+#endif
+			}
 			break;
 
 		case SFDP_PROFILE1_ID:
