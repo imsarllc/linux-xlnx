@@ -1346,7 +1346,7 @@ static int sc16is7xx_probe(struct device *dev,
 	// 	return 0;
 
 	ret = devm_request_threaded_irq(dev, irq, NULL, sc16is7xx_irq,
-					IRQF_TRIGGER_RISING | IRQF_ONESHOT,
+					IRQF_TRIGGER_HIGH | IRQF_ONESHOT,
 					dev_name(dev), s);
 	if (!ret)
 		return 0;
