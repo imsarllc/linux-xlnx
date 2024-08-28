@@ -573,6 +573,7 @@ static int spansion_set_4byte_addr_mode(struct spi_nor *nor, bool enable)
  */
 int spi_nor_write_ear(struct spi_nor *nor, u32 addr)
 {
+	u8 code = SPINOR_OP_WREAR;
 	u32 ear;
 	int ret;
 	struct mtd_info *mtd = &nor->mtd;
@@ -590,11 +591,19 @@ int spi_nor_write_ear(struct spi_nor *nor, u32 addr)
 	if (ear == nor->curbank)
 		return 0;
 
+	if (nor->jedec_id == CFI_MFR_AMD)
+		code = SPINOR_OP_BRWR;
+	if (nor->jedec_id == CFI_MFR_ST ||
+	    nor->jedec_id == CFI_MFR_MACRONIX ||
+	    nor->jedec_id == CFI_MFR_PMC) {
+		spi_nor_write_enable(nor);
+		code = SPINOR_OP_WREAR;
+	}
 	nor->bouncebuf[0] = ear;
 
 	if (nor->spimem) {
 		struct spi_mem_op op =
-			SPI_MEM_OP(SPI_MEM_OP_CMD(SPINOR_OP_WREAR, 0),
+			SPI_MEM_OP(SPI_MEM_OP_CMD(code, 0),
 				   SPI_MEM_OP_NO_ADDR,
 				   SPI_MEM_OP_NO_DUMMY,
 				   SPI_MEM_OP_DATA_OUT(1, nor->bouncebuf, 0));
@@ -603,8 +612,9 @@ int spi_nor_write_ear(struct spi_nor *nor, u32 addr)
 
 		ret = spi_mem_exec_op(nor->spimem, &op);
 	} else {
-		ret = spi_nor_controller_ops_write_reg(nor, SPINOR_OP_WREAR,
-						       nor->bouncebuf, 1);
+		ret = spi_nor_controller_ops_write_reg(nor, code, nor->bouncebuf, 1);
+		if (ret < 0)
+			return ret;
 	}
 
 	if (ret)
