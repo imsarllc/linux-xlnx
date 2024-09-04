@@ -376,7 +376,9 @@ static void sc16is7xx_fifo_read(struct uart_port *port, unsigned int rxlen)
 	const u8 line = sc16is7xx_line(port);
 	u8 addr = (SC16IS7XX_RHR_REG << SC16IS7XX_REG_SHIFT) | line;
 
-	regmap_noinc_read(s->regmap, addr, s->buf, rxlen);
+	regcache_cache_bypass(s->regmap, true);
+	regmap_raw_read(s->regmap, addr, s->buf, rxlen);
+	regcache_cache_bypass(s->regmap, false);
 }
 
 static void sc16is7xx_fifo_write(struct uart_port *port, u8 to_send)
@@ -392,7 +394,9 @@ static void sc16is7xx_fifo_write(struct uart_port *port, u8 to_send)
 	if (unlikely(!to_send))
 		return;
 
-	regmap_noinc_write(s->regmap, addr, s->buf, to_send);
+	regcache_cache_bypass(s->regmap, true);
+	regmap_raw_write(s->regmap, addr, s->buf, to_send);
+	regcache_cache_bypass(s->regmap, false);
 }
 
 static void sc16is7xx_port_update(struct uart_port *port, u8 reg,
@@ -485,10 +489,6 @@ static bool sc16is7xx_regmap_precious(struct device *dev, unsigned int reg)
 	return false;
 }
 
-static bool sc16is7xx_regmap_noinc(struct device *dev, unsigned int reg)
-{
-	return reg == SC16IS7XX_RHR_REG;
-}
 
 /*
  * Configure programmable baud rate generator (divisor) according to the
@@ -1373,6 +1373,13 @@ static int sc16is7xx_probe(struct device *dev,
 	}
 #endif
 
+	////////////////////////
+	// Note on IMSAR modifications:
+	// - Disable (comment out) sharing interrupt because we have a dedicated interrupt line
+	// - Switch to RISING edge trigger instead of FALLING b/c the GIC does not support falling edge
+	//   (we have an inverter on the IRQ line)
+
+	// /*
 	//  * Setup interrupt. We first try to acquire the IRQ line as level IRQ.
 	//  * If that succeeds, we can allow sharing the interrupt as well.
 	//  * In case the interrupt controller doesn't support that, we fall
@@ -1454,8 +1461,6 @@ static struct regmap_config regcfg = {
 	.cache_type = REGCACHE_RBTREE,
 	.volatile_reg = sc16is7xx_regmap_volatile,
 	.precious_reg = sc16is7xx_regmap_precious,
-	.writeable_noinc_reg = sc16is7xx_regmap_noinc,
-	.readable_noinc_reg = sc16is7xx_regmap_noinc,
 };
 
 #ifdef CONFIG_SERIAL_SC16IS7XX_SPI
