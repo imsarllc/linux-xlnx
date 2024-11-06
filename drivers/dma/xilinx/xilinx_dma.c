@@ -1528,12 +1528,12 @@ static void xilinx_dma_start_transfer(struct xilinx_dma_chan *chan)
 
 	reg = dma_ctrl_read(chan, XILINX_DMA_REG_DMACR);
 
-	if (chan->desc_pendingcount <= XILINX_DMA_COALESCE_MAX) {
-		reg &= ~XILINX_DMA_CR_COALESCE_MAX;
-		reg |= chan->desc_pendingcount <<
-				  XILINX_DMA_CR_COALESCE_SHIFT;
-		dma_ctrl_write(chan, XILINX_DMA_REG_DMACR, reg);
-	}
+		if (chan->desc_pendingcount <= XILINX_DMA_COALESCE_MAX) {
+			reg &= ~XILINX_DMA_CR_COALESCE_MAX;
+			reg |= chan->desc_pendingcount <<
+					XILINX_DMA_CR_COALESCE_SHIFT;
+			dma_ctrl_write(chan, XILINX_DMA_REG_DMACR, reg);
+		}
 
 	if (chan->has_sg)
 		xilinx_write(chan, XILINX_DMA_REG_CURDESC,
@@ -1552,6 +1552,9 @@ static void xilinx_dma_start_transfer(struct xilinx_dma_chan *chan)
 		else
 			xilinx_write(chan, XILINX_DMA_REG_TAILDESC,
 				     tail_segment->phys);
+
+		list_splice_tail_init(&chan->pending_list, &chan->active_list);
+		chan->desc_pendingcount = 0;
 	} else {
 		struct xilinx_axidma_tx_segment *segment;
 		struct xilinx_axidma_desc_hw *hw;
@@ -1567,10 +1570,11 @@ static void xilinx_dma_start_transfer(struct xilinx_dma_chan *chan)
 		/* Start the transfer */
 		dma_ctrl_write(chan, XILINX_DMA_REG_BTT,
 			       hw->control & chan->xdev->max_buffer_len);
+
+		list_move_tail(&head_desc->node, &chan->active_list);
+		chan->desc_pendingcount--;
 	}
 
-	list_splice_tail_init(&chan->pending_list, &chan->active_list);
-	chan->desc_pendingcount = 0;
 	chan->idle = false;
 }
 
